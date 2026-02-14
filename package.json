@@ -1,0 +1,17 @@
+{
+  "name": "stargazempp",
+  "private": true,
+  "version": "0.0.0",
+  "description": "StargazeMPP — agentic intelligence marketplace on the Machine Payments Protocol.",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "echo 'run dev inside individual packages (backend, frontend) — see packages/*/README.md'",
+    "build": "echo 'each package builds independently — see packages/*/README.md'"
+  },
+  "packageManager": "bun@1.1.30",
+  "engines": {
+    "node": ">=20"
+  }
+}
