@@ -1,0 +1,9 @@
+cache/
+out/
+broadcast/
+artifacts/
+typechain-types/
+.env
+
+# Foundry deps — re-fetch with `forge install` after clone
+lib/

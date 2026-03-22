@@ -1,0 +1,14 @@
+{
+  "name": "@stargazempp/contracts-evm",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Tempo EVM Solidity contracts: GAZEToken, BurnController, StargazeEscrow, StargazeRegistry, PrivacyVaultRegistry.",
+  "type": "module",
+  "scripts": {
+    "build": "forge build",
+    "test": "forge test",
+    "fmt": "forge fmt",
+    "publish-abis": "node scripts/publish-abis.mjs",
+    "all": "forge build && node scripts/publish-abis.mjs"
+  }
+}
