@@ -1,0 +1,21 @@
+[package]
+name = "stargaze_anchor"
+version = "0.0.0"
+description = "Solana-side mirror of StargazeRegistry for Solana-native providers, plus x402 USDC receipt verification."
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "stargaze_anchor"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31.1"
