@@ -1,0 +1,25 @@
+[package]
+name = "stargaze-indexer"
+version = "0.0.0"
+description = "Sub-50ms-lag Solana indexer for StargazeAnchor events and x402 USDC receipts."
+edition = "2021"
+license = "Apache-2.0"
+
+[[bin]]
+name = "stargaze-indexer"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+futures = "0.3"
+dotenvy = "0.15"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = 3
