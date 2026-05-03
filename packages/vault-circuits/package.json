@@ -1,0 +1,15 @@
+{
+  "name": "@stargazempp/vault-circuits",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Groth16 circuits + on-chain verifiers for StargazeVault privacy tiers.",
+  "type": "module",
+  "scripts": {
+    "compile:aggregate": "circom circuits/aggregate_sum.circom --r1cs --wasm --sym -o build/",
+    "ceremony:aggregate": "echo 'see docs/vault-ceremony.md — Phase 2 ceremony coordination'",
+    "verifier:aggregate": "snarkjs zkey export solidityverifier build/aggregate_sum_final.zkey build/AggregateSumVerifier.sol"
+  },
+  "devDependencies": {
+    "snarkjs": "^0.7.5"
+  }
+}
