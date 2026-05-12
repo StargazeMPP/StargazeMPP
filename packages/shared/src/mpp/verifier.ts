@@ -49,7 +49,10 @@ export interface MppVerifier {
    * Recover the agent wallet from a signed voucher via EIP-712 `ecrecover`.
    * Pure crypto — no RPC, no I/O. Sub-10ms budget on the hot path.
    *
+   * Async only because `viem`'s `recoverTypedDataAddress` is async by
+   * convention; resolves synchronously in practice.
+   *
    * Throws on signature recovery failure or domain / type mismatch.
    */
-  verifyVoucher(voucher: SignedVoucher): VerifiedVoucher;
+  verifyVoucher(voucher: SignedVoucher): Promise<VerifiedVoucher>;
 }

@@ -1,0 +1,37 @@
+{
+  "name": "@stargazempp/provider-sdk",
+  "version": "0.0.0",
+  "private": false,
+  "description": "Drop-in decorator that monetises any HTTP endpoint as an MPP intelligence service. Public surface owned by the external dev; voucher / deposit verification primitives owned by the StargazeMPP core team.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./internal": {
+      "types": "./dist/internal/index.d.ts",
+      "import": "./dist/internal/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@stargazempp/shared": "*",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.0"
+  }
+}
