@@ -53,3 +53,8 @@ packages/indexer/target/
 
 # TypeScript incremental build cache
 *.tsbuildinfo
+
+# Playwright
+playwright-report/
+test-results/
+.playwright/
