@@ -107,6 +107,52 @@ pub mod stargaze_anchor {
         });
         Ok(())
     }
+
+    /// Dispatch a reputation snapshot for `provider_id` to the Tempo receiver
+    /// via Chainlink CCIP. The on-chain `Provider.reputation_score` is the
+    /// authoritative value being mirrored.
+    ///
+    /// Payload schema (matches `StargazeCcipReceiver.ccipReceive`):
+    ///   `abi.encode(bytes32 providerId, uint16 score)` — 64 bytes total.
+    ///
+    /// CPI into the Chainlink router is wired in M4; for now the message is
+    /// emitted as a `CcipDispatched` event so the indexer can observe it.
+    /// The router program id is supplied via the `CHAINLINK_CCIP_PROGRAM_ID`
+    /// env var at deploy time.
+    pub fn dispatch_reputation_to_tempo(
+        ctx: Context<DispatchReputationToTempo>,
+        provider_id: [u8; 32],
+        dest_chain_selector: u64,
+        receiver: Vec<u8>,
+        extra_args: Vec<u8>,
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.sender.key(),
+            ctx.accounts.config.authority,
+            StargazeAnchorError::Unauthorized
+        );
+
+        let score = ctx.accounts.provider.reputation_score;
+
+        let mut payload = Vec::with_capacity(64);
+        payload.extend_from_slice(&provider_id);
+        payload.extend_from_slice(&[0u8; 30]);
+        payload.extend_from_slice(&score.to_be_bytes());
+
+        emit!(CcipDispatched {
+            provider_id,
+            score,
+            dest_chain_selector,
+            receiver,
+            payload,
+            extra_args,
+        });
+
+        // M4: CPI to ctx.accounts.ccip_router_program goes here.
+        let _ = &ctx.accounts.ccip_router_program;
+
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -187,6 +233,22 @@ pub struct CcipMirrorScore<'info> {
     pub provider: Account<'info, Provider>,
 }
 
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32])]
+pub struct DispatchReputationToTempo<'info> {
+    pub sender: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    #[account(
+        seeds = [b"provider", provider_id.as_ref()],
+        bump = provider.bump
+    )]
+    pub provider: Account<'info, Provider>,
+    /// CHECK: Chainlink CCIP Solana router program. Not yet invoked — passed
+    /// in by the client so a future CPI can target the configured router.
+    pub ccip_router_program: UncheckedAccount<'info>,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Config {
@@ -246,6 +308,16 @@ pub struct X402ReceiptRecorded {
 pub struct ReputationMirrored {
     pub provider_id: [u8; 32],
     pub score: u16,
+}
+
+#[event]
+pub struct CcipDispatched {
+    pub provider_id: [u8; 32],
+    pub score: u16,
+    pub dest_chain_selector: u64,
+    pub receiver: Vec<u8>,
+    pub payload: Vec<u8>,
+    pub extra_args: Vec<u8>,
 }
 
 #[error_code]

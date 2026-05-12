@@ -154,6 +154,109 @@
       ]
     },
     {
+      "name": "dispatch_reputation_to_tempo",
+      "docs": [
+        "Dispatch a reputation snapshot for `provider_id` to the Tempo receiver",
+        "via Chainlink CCIP. The on-chain `Provider.reputation_score` is the",
+        "authoritative value being mirrored.",
+        "",
+        "Payload schema (matches `StargazeCcipReceiver.ccipReceive`):",
+        "`abi.encode(bytes32 providerId, uint16 score)` — 64 bytes total.",
+        "",
+        "CPI into the Chainlink router is wired in M4; for now the message is",
+        "emitted as a `CcipDispatched` event so the indexer can observe it.",
+        "The router program id is supplied via the `CHAINLINK_CCIP_PROGRAM_ID`",
+        "env var at deploy time."
+      ],
+      "discriminator": [
+        228,
+        41,
+        107,
+        2,
+        194,
+        245,
+        109,
+        93
+      ],
+      "accounts": [
+        {
+          "name": "sender",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "provider",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  118,
+                  105,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ccip_router_program",
+          "docs": [
+            "in by the client so a future CPI can target the configured router."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "provider_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "dest_chain_selector",
+          "type": "u64"
+        },
+        {
+          "name": "receiver",
+          "type": "bytes"
+        },
+        {
+          "name": "extra_args",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
       "name": "initialize",
       "discriminator": [
         175,
@@ -416,6 +519,19 @@
   ],
   "events": [
     {
+      "name": "CcipDispatched",
+      "discriminator": [
+        222,
+        228,
+        128,
+        254,
+        175,
+        147,
+        182,
+        94
+      ]
+    },
+    {
       "name": "ProviderRegistered",
       "discriminator": [
         38,
@@ -481,6 +597,43 @@
     }
   ],
   "types": [
+    {
+      "name": "CcipDispatched",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "score",
+            "type": "u16"
+          },
+          {
+            "name": "dest_chain_selector",
+            "type": "u64"
+          },
+          {
+            "name": "receiver",
+            "type": "bytes"
+          },
+          {
+            "name": "payload",
+            "type": "bytes"
+          },
+          {
+            "name": "extra_args",
+            "type": "bytes"
+          }
+        ]
+      }
+    },
     {
       "name": "Config",
       "type": {
