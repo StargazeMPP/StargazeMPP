@@ -35,3 +35,11 @@ app.post('/api/intel', provider.monetize(async (req, payment) => {
 ```
 npm test --workspace @stargazempp/provider-sdk
 ```
+
+## Examples
+
+40-line end-to-end demos for the three common Node frameworks live in [`examples/`](examples/):
+
+- [`examples/express.ts`](examples/express.ts)
+- [`examples/hono.ts`](examples/hono.ts)
+- [`examples/fastify.ts`](examples/fastify.ts)
