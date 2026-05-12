@@ -1,0 +1,2 @@
+# Drizzle schema lands here — owned by the external dev (packages/backend).
+# Indexer reads from this once it's published.

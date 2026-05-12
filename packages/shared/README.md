@@ -1,7 +1,14 @@
-# `packages/shared`
+# `packages/shared` — types, schemas, ABIs
 
-Types and schemas that cross the boundary between the on-chain contracts (when they land) and the backend (when it lands). Pure types — no runtime deps.
+**Owner:** shared.
 
-Today: MPP voucher (EIP-712) + session state in `src/mpp/`.
+The seam between this team and the external dev. Anything that crosses the boundary lives here:
 
-Later: ABIs (Tempo), Anchor IDL (Solana), Drizzle schema, vault verifier bundles, categories enum.
+- `evm/abi/` — generated ABIs for `GAZEToken`, `BurnController`, `StargazeEscrow`, `StargazeRegistry`, `PrivacyVaultRegistry`.
+- `solana/idl/` — Anchor IDL for `StargazeAnchor`.
+- `mpp/` — EIP-712 voucher schema, session token JWT claims, x402 receipt shape.
+- `vault/` — Groth16 verifying-key bundle shape, public-output schemas per privacy tier.
+- `db/` — Drizzle schema source of truth shared by backend + indexer.
+- `categories.ts` — `on-chain-analytics | physical-ai | desci | rwa | compliance | ai-model`.
+
+Rule: types only, no runtime deps. If you find yourself adding a heavy dependency to `shared`, it belongs in a feature package instead.
