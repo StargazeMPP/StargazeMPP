@@ -50,3 +50,6 @@ packages/vault-circuits/verification_key.json
 
 # Indexer
 packages/indexer/target/
+
+# TypeScript incremental build cache
+*.tsbuildinfo
