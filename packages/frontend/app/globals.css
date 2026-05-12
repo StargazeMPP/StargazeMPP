@@ -1,0 +1,72 @@
+@import "tailwindcss";
+
+/* --------------------------------------------------------------------
+ * Stargaze brand tokens.
+ * Mirrors the palette in `_landing.html`, the dashboard, docs, and
+ * privacy pages. Update once to retune the whole product surface.
+ * ----------------------------------------------------------------- */
+
+@theme inline {
+  --color-bg: #1a1530;
+  --color-bg-2: #221a3d;
+  --color-bg-3: #15102b;
+  --color-bg-deep: #0e0820;
+  --color-ink: #ebe6f7;
+  --color-ink-muted: #a89fc7;
+  --color-ink-dim: #c8bfe2;
+  --color-accent: #c4b3ec;
+  --color-accent-2: #8b7cc8;
+  --color-line: rgba(196, 179, 236, 0.16);
+  --color-line-2: rgba(196, 179, 236, 0.32);
+  --color-danger: #ff9eb1;
+
+  --font-display: var(--font-display, "Fraunces"), Georgia, serif;
+  --font-body: var(--font-body, "Inter Tight"), system-ui, sans-serif;
+  --font-mono: var(--font-mono, "JetBrains Mono"), ui-monospace, monospace;
+}
+
+:root {
+  --bg: #1a1530;
+  --bg-2: #221a3d;
+  --bg-3: #15102b;
+  --bg-deep: #0e0820;
+  --ink: #ebe6f7;
+  --ink-muted: #a89fc7;
+  --ink-dim: #c8bfe2;
+  --accent: #c4b3ec;
+  --accent-2: #8b7cc8;
+  --line: rgba(196, 179, 236, 0.16);
+  --line-2: rgba(196, 179, 236, 0.32);
+  --danger: #ff9eb1;
+}
+
+html {
+  background: var(--bg);
+}
+
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  letter-spacing: -0.005em;
+}
+
+::selection {
+  background: var(--accent);
+  color: var(--bg);
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+.tnum {
+  font-variant-numeric: tabular-nums;
+}

@@ -182,7 +182,7 @@ npm test --workspace @stargazempp/provider-sdk      # Provider SDK
 | [`@stargazempp/anchor-program`](packages/anchor-program) | `StargazeAnchor` program on Solana — Solana-side provider registry, x402 receipt PDA, and CCIP-mirrored reputation. |
 | [`@stargazempp/indexer`](packages/indexer) | Rust + Yellowstone gRPC indexer for `StargazeAnchor` events and x402 USDC receipts. Sub-50-millisecond lag target. |
 | [`@stargazempp/vault-circuits`](packages/vault-circuits) | Groth16 circuits (snarkjs / circom) and on-chain verifier contracts for the StargazeVault privacy tiers. Trusted-setup ceremony coordination in [`docs/vault-ceremony.md`](docs/vault-ceremony.md). |
-| [`@stargazempp/frontend`](packages/frontend) | TanStack Start + shadcn/ui marketplace front-end. |
+| [`@stargazempp/frontend`](packages/frontend) | Next.js 16 (App Router, Turbopack, RSC) marketplace front-end — Fraunces / Inter Tight / JetBrains Mono brand. |
 | [`@stargazempp/backend`](packages/backend) | Express 5 + tRPC 11 API gateway, StargazeIndex Service, MPP Session Manager, Reputation Oracle. |
 
 ## Tech Stack
@@ -191,7 +191,7 @@ npm test --workspace @stargazempp/provider-sdk      # Provider SDK
 
 **Off-chain.** Express 5, tRPC 11, Drizzle ORM, PostgreSQL + TimescaleDB, Redis, elizaOS v2 for the Reputation Oracle, Claude API for AI-assisted quality assessment, Rust + Tokio + Yellowstone gRPC for the indexer.
 
-**Front-end.** TanStack Start, React, shadcn/ui, Tailwind CSS.
+**Front-end.** Next.js 16 (App Router, Turbopack, React Server Components), React 19.2, Tailwind CSS 4, shadcn/ui primitives, Fraunces / Inter Tight / JetBrains Mono.
 
 **Settlement rails.** Tempo PathUSD (native), Solana USDC via x402, fiat on-ramps through Stripe / Visa / Lightning.
 
