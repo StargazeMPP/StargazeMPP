@@ -3,3 +3,4 @@ target/
 test-ledger/
 node_modules/
 yarn.lock
+.env
