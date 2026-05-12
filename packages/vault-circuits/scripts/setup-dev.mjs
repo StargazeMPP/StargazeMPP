@@ -1,17 +1,17 @@
 #!/usr/bin/env node
 /**
- * Dev-only Phase-2 setup for the `aggregate_sum` circuit.
+ * Dev-only Phase-2 setup for a named circuit.
  *
- * Produces local artifacts under `build/aggregate_sum_*` suitable for
- * unit tests and local development. The contribution entropy is hard-
- * coded — do NOT use the resulting `.zkey` in production; the real
- * ceremony is coordinated separately (see `docs/vault-ceremony.md`).
+ * Produces local artifacts under `build/<circuit>_*` suitable for unit
+ * tests and local development. The contribution entropy is hard-coded —
+ * do NOT use the resulting `.zkey` in production; the real ceremony is
+ * coordinated separately (see `docs/vault-ceremony.md`).
  *
  * Shells out to the `snarkjs` CLI rather than its JS API — the API
  * surface drifts between minor versions, the CLI is stable, and the
  * docs uniformly use it.
  *
- * Run: `npm run setup:aggregate-dev`
+ * Run: `node scripts/setup-dev.mjs <circuit-name>`
  */
 
 import path from 'node:path';
@@ -23,13 +23,17 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const root = path.resolve(__dirname, '..');
 const buildDir = path.join(root, 'build');
-const circuit = 'aggregate_sum';
+const circuit = process.argv[2];
+if (!circuit) {
+  console.error('usage: node scripts/setup-dev.mjs <circuit-name>');
+  process.exit(1);
+}
 
 mkdirSync(buildDir, { recursive: true });
 
 const r1cs = path.join(buildDir, `${circuit}.r1cs`);
 if (!existsSync(r1cs)) {
-  throw new Error(`Missing ${r1cs} — run \`npm run compile:aggregate\` first.`);
+  throw new Error(`Missing ${r1cs} — run \`npm run compile:${circuit}\` first.`);
 }
 
 const pot0 = path.join(buildDir, 'pot12_0000.ptau');
