@@ -4,9 +4,8 @@
  * payment-only protection (`confidential`), or per-buyer key-encrypted
  * raw data (`buyer-key`).
  *
- * Lowercase-with-hyphens form chosen to match the SDK example in
- * `docs/overview.pdf` §8. The backend column `providers.privacy_tier`
- * stores this exact string.
+ * Lowercase-with-hyphens — URL-safe and JSON-friendly. The backend column
+ * `providers.privacy_tier` stores this exact string.
  */
 export const PRIVACY_TIERS = [
   'open',

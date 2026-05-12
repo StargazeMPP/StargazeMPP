@@ -181,7 +181,7 @@ npm test --workspace @stargazempp/provider-sdk      # Provider SDK
 | [`@stargazempp/contracts-evm`](packages/contracts-evm) | Solidity contracts deployed to Tempo EVM: `GAZEToken`, `BurnController`, `StargazeEscrow`, `StargazeRegistry`, `PrivacyVaultRegistry`. Foundry-based, via-IR + optimizer enabled, 4-of-7 Safe multisig upgrade authority planned. |
 | [`@stargazempp/anchor-program`](packages/anchor-program) | `StargazeAnchor` program on Solana — Solana-side provider registry, x402 receipt PDA, and CCIP-mirrored reputation. |
 | [`@stargazempp/indexer`](packages/indexer) | Rust + Yellowstone gRPC indexer for `StargazeAnchor` events and x402 USDC receipts. Sub-50-millisecond lag target. |
-| [`@stargazempp/vault-circuits`](packages/vault-circuits) | Groth16 circuits (snarkjs / circom) and on-chain verifier contracts for the StargazeVault privacy tiers. Trusted-setup ceremony coordination in [`docs/vault-ceremony.md`](docs/vault-ceremony.md). |
+| [`@stargazempp/vault-circuits`](packages/vault-circuits) | Groth16 circuits (snarkjs / circom) and on-chain verifier contracts for the StargazeVault privacy tiers. |
 | [`@stargazempp/frontend`](packages/frontend) | Next.js 16 (App Router, Turbopack, RSC) marketplace front-end — Fraunces / Inter Tight / JetBrains Mono brand. |
 | [`@stargazempp/backend`](packages/backend) | Express 5 + tRPC 11 API gateway, StargazeIndex Service, MPP Session Manager, Reputation Oracle. |
 
@@ -204,12 +204,6 @@ npm test --workspace @stargazempp/provider-sdk      # Provider SDK
 | 3 — Audit + TGE + AI Models | Weeks 19–26 | Trail of Bits audit closed; `$GAZE` token generation event; 100,000 queries / day. |
 | 4 — Enterprise + CCIP | Weeks 27–36 | Chainlink CCIP cross-chain provider registry; enterprise bulk sessions; 1M queries / day. |
 | 5 — Full agentic economy | Month 10+ | 1,000+ providers; $1M+ PathUSD routed per month. |
-
-## Documentation
-
-- [`docs/overview.pdf`](docs/overview.pdf) — Product overview and market context.
-- [`docs/backend.pdf`](docs/backend.pdf) — Backend infrastructure specification.
-- [`docs/vault-ceremony.md`](docs/vault-ceremony.md) — Groth16 trusted-setup ceremony plan.
 
 ## Security
 

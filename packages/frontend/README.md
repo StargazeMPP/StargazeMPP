@@ -35,7 +35,7 @@ npm run typecheck
 npm run lint
 ```
 
-## Planned scope (per [`docs/frontend.pdf`](../../docs/frontend.pdf))
+## Planned scope
 
 - Wallet adapters (wagmi + viem for Tempo; `@solana/wallet-adapter` for Solana).
 - EIP-712 voucher signing helper (`lib/voucher/sign.ts`).

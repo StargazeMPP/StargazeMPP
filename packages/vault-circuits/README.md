@@ -22,4 +22,13 @@ Outputs to `build/`: `.r1cs` constraint system, `.wasm` witness generator, `.sym
 
 ## Trusted setup
 
-Phase 2 ceremony coordination, contributor rotation, and beacon selection are documented in [`docs/vault-ceremony.md`](../../docs/vault-ceremony.md). Final `.zkey` files and the corresponding Solidity verifiers register with [`PrivacyVaultRegistry`](../contracts-evm/src/PrivacyVaultRegistry.sol).
+Phase 2 ceremony per circuit, with at least five independent contributors and a public randomness beacon for the final contribution. Final `.zkey` files and the corresponding Solidity verifiers register with [`PrivacyVaultRegistry`](../contracts-evm/src/PrivacyVaultRegistry.sol).
+
+For local development:
+
+```bash
+npm run setup:aggregate-dev   # Dev-only Phase 2 with hard-coded entropy.
+npm run verifier:aggregate    # Emit AggregateSumVerifier.sol.
+```
+
+Dev artifacts are not safe for mainnet.

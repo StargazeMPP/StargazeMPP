@@ -12,8 +12,8 @@ export interface DeployedAddresses {
 export type TempoNetwork = 'tempo-mainnet' | 'tempo-testnet' | 'local';
 
 /**
- * Populated by `packages/contracts-evm`'s deploy script. Empty here until the
- * first testnet deploy lands — flagged in `BLOCKERS.md`.
+ * Populated by `packages/contracts-evm`'s deploy script. Empty here until
+ * the first testnet deploy lands.
  */
 export const ADDRESSES: Partial<Record<TempoNetwork, DeployedAddresses>> = {};
 

@@ -19,15 +19,16 @@ app.post('/api/intel', provider.monetize(async (req, payment) => {
 }));
 ```
 
-## Ownership split
+## API surfaces
 
-- **Public surface** — `StargazeProvider`, `monetize`, `vaultMonetize`, config validation, framework adapters (Express / Hono / Fastify). Owned by the external dev.
-- **Internal crypto** — `StargazeMppVerifier` (EIP-712 voucher recovery via `viem`, deposit verification via Tempo + Solana RPCs, Groth16 proof generation). Owned by this team. Lives in `src/internal/` and is also exported as a side-door for advanced users.
+- **Public** — `StargazeProvider`, `monetize`, `vaultMonetize`, config validation, framework adapters (Express / Hono / Fastify).
+- **Internal** — `StargazeMppVerifier` (EIP-712 voucher recovery via `viem`, deposit verification via Tempo + Solana RPCs). Lives in `src/internal/` and is also exported as a side-door for advanced users.
 
-## What's in `src/internal/` today
+## What's in `src/internal/`
 
 - `recoverVoucherSigner(voucher)` — pure EIP-712 ecrecover via viem, sub-10 ms on commodity hardware (the test suite enforces a 10 ms p-mean budget).
-- `StargazeMppVerifier` — composes voucher recovery with stubbed deposit verification. `verifyVoucher` is live; `verifyDeposit` throws pending Tempo testnet RPC details (tracked in `BLOCKERS.md`).
+- `StargazeMppVerifier` — composes voucher recovery with Tempo + Solana deposit verification (`TempoDepositVerifier` parses `Transfer` log receipts, `SolanaDepositVerifier` walks SPL Token transfers in a parsed tx).
+- `TempoDepositVerifier`, `SolanaDepositVerifier` — also exported directly for advanced use.
 
 ## Run the tests
 
