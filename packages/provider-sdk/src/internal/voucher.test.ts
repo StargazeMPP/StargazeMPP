@@ -122,10 +122,10 @@ describe('StargazeMppVerifier', () => {
     ).rejects.toThrow(/Tempo deposit verification requires/i);
   });
 
-  it('refuses solana verifyDeposit until the rail is wired', async () => {
+  it('refuses solana verifyDeposit without the required configuration', async () => {
     const verifier = new StargazeMppVerifier();
     await expect(
       verifier.verifyDeposit({ txHash: 'sig', rail: 'solana' }, 'recipient', 100n),
-    ).rejects.toThrow(/Solana deposit verification not yet implemented/i);
+    ).rejects.toThrow(/Solana deposit verification requires/i);
   });
 });

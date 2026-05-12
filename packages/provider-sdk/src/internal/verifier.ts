@@ -6,8 +6,10 @@ import type {
   VerifiedVoucher,
 } from '@stargazempp/shared';
 import type { Address, Chain, Hex, PublicClient } from 'viem';
+import type { Connection } from '@solana/web3.js';
 import { recoverVoucherSigner } from './voucher.js';
 import { TempoDepositVerifier } from './deposit-tempo.js';
+import { SolanaDepositVerifier } from './deposit-solana.js';
 
 export interface StargazeMppVerifierOptions {
   /** Tempo EVM RPC endpoint. Required for `verifyDeposit` on the `tempo` rail. */
@@ -20,6 +22,10 @@ export interface StargazeMppVerifierOptions {
   tempoPathUsdAddress?: Address;
   /** Solana RPC endpoint. Required for `verifyDeposit` on the `solana` rail. */
   solanaRpcUrl?: string;
+  /** Optional pre-built `Connection` for solana, mainly used in tests. */
+  solanaConnection?: Connection;
+  /** Canonical USDC mint on the target Solana network. */
+  solanaUsdcMint?: string;
 }
 
 /**
@@ -33,6 +39,7 @@ export interface StargazeMppVerifierOptions {
  */
 export class StargazeMppVerifier implements MppVerifier {
   private readonly tempoVerifier?: TempoDepositVerifier;
+  private readonly solanaVerifier?: SolanaDepositVerifier;
 
   constructor(private readonly opts: StargazeMppVerifierOptions = {}) {
     if (opts.tempoPathUsdAddress && (opts.tempoRpcUrl || opts.tempoClient)) {
@@ -41,6 +48,13 @@ export class StargazeMppVerifier implements MppVerifier {
         chain: opts.tempoChain,
         pathUsdAddress: opts.tempoPathUsdAddress,
         client: opts.tempoClient,
+      });
+    }
+    if (opts.solanaUsdcMint && (opts.solanaRpcUrl || opts.solanaConnection)) {
+      this.solanaVerifier = new SolanaDepositVerifier({
+        rpcUrl: opts.solanaRpcUrl ?? '',
+        usdcMint: opts.solanaUsdcMint,
+        connection: opts.solanaConnection,
       });
     }
   }
@@ -63,9 +77,12 @@ export class StargazeMppVerifier implements MppVerifier {
       );
     }
     if (proof.rail === 'solana') {
-      throw new Error(
-        'StargazeMppVerifier: Solana deposit verification not yet implemented — coming next.',
-      );
+      if (!this.solanaVerifier) {
+        throw new Error(
+          'StargazeMppVerifier: Solana deposit verification requires `solanaRpcUrl` (or `solanaConnection`) plus `solanaUsdcMint`.',
+        );
+      }
+      return this.solanaVerifier.verify(proof.txHash, expectedRecipient, minAmount);
     }
     throw new Error(`StargazeMppVerifier: unknown rail '${(proof as { rail: string }).rail}'`);
   }
