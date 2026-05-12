@@ -21,6 +21,7 @@ const CONTRACTS = [
   'StargazeEscrow',
   'StargazeRegistry',
   'PrivacyVaultRegistry',
+  'StargazeCcipReceiver',
 ];
 
 mkdirSync(sharedAbiDir, { recursive: true });

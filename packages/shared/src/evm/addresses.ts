@@ -6,6 +6,7 @@ export interface DeployedAddresses {
   StargazeEscrow: Address;
   StargazeRegistry: Address;
   PrivacyVaultRegistry: Address;
+  StargazeCcipReceiver: Address;
 }
 
 export type TempoNetwork = 'tempo-mainnet' | 'tempo-testnet' | 'local';

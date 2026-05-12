@@ -7,14 +7,18 @@ import {BurnController} from "../src/BurnController.sol";
 import {StargazeEscrow} from "../src/StargazeEscrow.sol";
 import {StargazeRegistry} from "../src/StargazeRegistry.sol";
 import {PrivacyVaultRegistry} from "../src/PrivacyVaultRegistry.sol";
+import {StargazeCcipReceiver} from "../src/StargazeCcipReceiver.sol";
 
-/// @notice Strict deployment order per backend PDF §2:
+/// @notice Strict deployment order:
 ///   1. GAZEToken
 ///   2. BurnController (depends GAZEToken)
 ///   3. StargazeEscrow
 ///   4. StargazeRegistry (depends GAZEToken + BurnController)
 ///   5. PrivacyVaultRegistry
+///   6. StargazeCcipReceiver (depends StargazeRegistry)
 /// Day-one admin is the 4-of-7 Safe multisig — pass its address via env.
+/// Post-deploy, the admin must grant the CCIP receiver ORACLE_ROLE on
+/// StargazeRegistry so reputation snapshots can be mirrored cross-chain.
 contract Deploy is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -29,13 +33,15 @@ contract Deploy is Script {
         StargazeEscrow escrow = new StargazeEscrow(pathUsd, admin);
         StargazeRegistry registry = new StargazeRegistry(address(gaze), address(burnController), admin);
         PrivacyVaultRegistry vaultRegistry = new PrivacyVaultRegistry(admin);
+        StargazeCcipReceiver ccipReceiver = new StargazeCcipReceiver(address(registry), admin);
 
         vm.stopBroadcast();
 
-        console2.log("GAZEToken           ", address(gaze));
-        console2.log("BurnController      ", address(burnController));
-        console2.log("StargazeEscrow      ", address(escrow));
-        console2.log("StargazeRegistry    ", address(registry));
-        console2.log("PrivacyVaultRegistry", address(vaultRegistry));
+        console2.log("GAZEToken            ", address(gaze));
+        console2.log("BurnController       ", address(burnController));
+        console2.log("StargazeEscrow       ", address(escrow));
+        console2.log("StargazeRegistry     ", address(registry));
+        console2.log("PrivacyVaultRegistry ", address(vaultRegistry));
+        console2.log("StargazeCcipReceiver ", address(ccipReceiver));
     }
 }
