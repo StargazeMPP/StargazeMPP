@@ -1,11 +1,25 @@
-# `packages/vault-circuits` — Groth16 circuits + verifier contracts
+# `@stargazempp/vault-circuits`
 
-**Owner:** this team.
+Groth16 circuits and on-chain verifiers for the StargazeVault privacy tiers.
 
-snarkjs / circom circuits for StargazeVault privacy tiers:
+## Tiers
 
-- **ZK-AGGREGATE** (AxonMed cohort stats) — Groth16 aggregate proof.
-- **ZK-GEOFENCE** (Kalder OFAC / mission corridor) — Light Protocol style geofence proof.
-- **BUYER-KEY** (YaloBase / AirborneLabs raw telemetry) — ERC-6551 TBA wrap with per-buyer envelope encryption.
+| Tier | Circuit | Use case |
+|---|---|---|
+| `zk-aggregate` | [`aggregate_sum`](circuits/aggregate_sum.circom) | Cohort statistics — prove that the sum of N private inputs equals a public claimed value (e.g. health-cohort HRV totals). |
+| `zk-aggregate` | `aggregate_mean` (planned) | Same shape as `aggregate_sum` for mean / variance proofs. |
+| `confidential` | `geofence` (planned) | OFAC / mission-corridor attestations à la Light Protocol. |
+| `buyer-key` | `buyer_key_envelope` (planned) | ERC-6551 token-bound-account wrap with per-buyer envelope encryption for raw drone / robot telemetry. |
 
-Outputs: `.wasm` + `.zkey` + on-chain verifier contracts registered in `PrivacyVaultRegistry`. Trusted-setup ceremony coordination tracked in `docs/vault-ceremony.md` (TODO).
+## Build
+
+```bash
+npm install
+npm run compile:aggregate
+```
+
+Outputs to `build/`: `.r1cs` constraint system, `.wasm` witness generator, `.sym` symbol map.
+
+## Trusted setup
+
+Phase 2 ceremony coordination, contributor rotation, and beacon selection are documented in [`docs/vault-ceremony.md`](../../docs/vault-ceremony.md). Final `.zkey` files and the corresponding Solidity verifiers register with [`PrivacyVaultRegistry`](../contracts-evm/src/PrivacyVaultRegistry.sol).

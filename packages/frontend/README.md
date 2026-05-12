@@ -1,7 +1,21 @@
-# `packages/frontend` — Next.js 15 marketplace UI
+# `@stargazempp/frontend`
 
-**Owner:** external dev.
+The StargazeMPP marketplace front-end.
 
-Public StargazeIndex browser, provider onboarding flow, agent session dashboard, $GAZE stake/burn analytics. Deep-space / star-violet aesthetic per the overview PDF.
+**Stack.** TanStack Start (TypeScript) · React · shadcn/ui · Tailwind CSS · Cloudflare Workers (via `@cloudflare/vite-plugin`).
 
-See `EXTERNAL_DEV_BRIEF.md` at the repo root.
+## Surfaces
+
+- `/` — marketing landing.
+- `/index` — public StargazeIndex browser (filter by category, price, privacy tier, reputation, payment method).
+- `/providers/[id]` — provider detail (pricing, sample response, reputation breakdown).
+- `/agent` — agent session dashboard (open session, balance, query log, close + refund).
+- `/provider` — provider onboarding (wallet connect, service config, `$GAZE` stake, vault verifier upload, earnings dashboard).
+- `/gaze` — live `$GAZE` burn / stake / staking-APY feed.
+
+## Develop
+
+```bash
+npm install
+npm run dev
+```
