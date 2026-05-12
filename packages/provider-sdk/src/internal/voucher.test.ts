@@ -115,10 +115,17 @@ describe('StargazeMppVerifier', () => {
     expect(verified.agentWallet.toLowerCase()).toBe(account.address.toLowerCase());
   });
 
-  it('throws a helpful error from verifyDeposit until wired', async () => {
+  it('refuses tempo verifyDeposit without the required configuration', async () => {
     const verifier = new StargazeMppVerifier();
     await expect(
       verifier.verifyDeposit({ txHash: '0xfeed', rail: 'tempo' }, '0xbeef', 100n),
-    ).rejects.toThrow(/not yet implemented/);
+    ).rejects.toThrow(/Tempo deposit verification requires/i);
+  });
+
+  it('refuses solana verifyDeposit until the rail is wired', async () => {
+    const verifier = new StargazeMppVerifier();
+    await expect(
+      verifier.verifyDeposit({ txHash: 'sig', rail: 'solana' }, 'recipient', 100n),
+    ).rejects.toThrow(/Solana deposit verification not yet implemented/i);
   });
 });
