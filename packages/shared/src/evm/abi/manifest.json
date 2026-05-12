@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-05-12T22:19:36.939Z",
+  "generatedAt": "2026-05-12T23:26:58.957Z",
   "contracts": {
     "GAZEToken": {
       "file": "./GAZEToken.json",
-      "bytecodeHash": "a0bfad482de2985d08612b1e76ce16ec835202819cd5fc00ba3b838782fb0f96"
+      "bytecodeHash": "0f6270d02716e4e99795400b3dfa2b94f8c766ee8b955eeee67872e4be8eff47"
     },
     "BurnController": {
       "file": "./BurnController.json",

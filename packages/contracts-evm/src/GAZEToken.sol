@@ -2,6 +2,7 @@
 pragma solidity 0.8.27;
 
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC20Burnable} from "@openzeppelin/contracts/token/ERC20/extensions/ERC20Burnable.sol";
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
 
@@ -10,12 +11,13 @@ interface IBurnControllerHook {
 }
 
 /// @title GAZEToken
-/// @notice Stargaze coordination token. ERC-20 with staking (7-day unstake cooldown)
-///         and an optional transfer hook into BurnController for routing telemetry.
+/// @notice Stargaze coordination token. ERC-20 with staking (7-day unstake cooldown),
+///         systematic burns via `BurnController`, and an optional transfer hook
+///         for routing telemetry.
 /// @dev Reward distribution uses a per-share accumulator pattern; the actual
 ///      reward asset (PathUSD or USDC) is delivered by the off-chain payment
 ///      router calling notifyRewardAmount.
-contract GAZEToken is ERC20, AccessControl, ReentrancyGuard {
+contract GAZEToken is ERC20Burnable, AccessControl, ReentrancyGuard {
     bytes32 public constant DISTRIBUTOR_ROLE = keccak256("DISTRIBUTOR_ROLE");
 
     uint256 public constant UNSTAKE_COOLDOWN = 7 days;

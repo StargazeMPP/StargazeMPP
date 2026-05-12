@@ -151,6 +151,19 @@
     },
     {
       "type": "function",
+      "name": "burn",
+      "inputs": [
+        {
+          "name": "value",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "burnController",
       "inputs": [],
       "outputs": [
@@ -161,6 +174,24 @@
         }
       ],
       "stateMutability": "view"
+    },
+    {
+      "type": "function",
+      "name": "burnFrom",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
+          "name": "value",
+          "type": "uint256",
+          "internalType": "uint256"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
     },
     {
       "type": "function",
@@ -910,6 +941,6 @@
       "inputs": []
     }
   ],
-  "bytecodeHash": "a0bfad482de2985d08612b1e76ce16ec835202819cd5fc00ba3b838782fb0f96",
-  "deployedBytecodeHash": "1136b9730799fdce2e798d708c5058f38771524692b1de2c4bb461560a19bd30"
+  "bytecodeHash": "0f6270d02716e4e99795400b3dfa2b94f8c766ee8b955eeee67872e4be8eff47",
+  "deployedBytecodeHash": "85c5e080192f2e45790c12e6df81b143947a7147fa85c3fbc990ccb3ba6dafed"
 }
