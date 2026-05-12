@@ -140,6 +140,30 @@ pub fn ix_record_x402_receipt(
     }
 }
 
+/// Build the `ccip_mirror_score` instruction.
+pub fn ix_ccip_mirror_score(
+    ccip_router: &Pubkey,
+    provider_id: [u8; 32],
+    new_score: u16,
+) -> Instruction {
+    let (config, _) = config_pda();
+    let (provider, _) = provider_pda(&provider_id);
+    let data = stargaze_anchor::instruction::CcipMirrorScore {
+        provider_id,
+        new_score,
+    }
+    .data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new_readonly(*ccip_router, true),
+            AccountMeta::new_readonly(config, false),
+            AccountMeta::new(provider, false),
+        ],
+        data,
+    }
+}
+
 /// Build the `dispatch_reputation_to_tempo` instruction.
 pub fn ix_dispatch_reputation_to_tempo(
     sender: &Pubkey,
