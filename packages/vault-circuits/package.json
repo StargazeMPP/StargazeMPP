@@ -4,12 +4,35 @@
   "private": true,
   "description": "Groth16 circuits + on-chain verifiers for StargazeVault privacy tiers.",
   "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src",
+    "circuits"
+  ],
   "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
     "compile:aggregate": "circom circuits/aggregate_sum.circom --r1cs --wasm --sym -o build/",
-    "ceremony:aggregate": "echo 'see docs/vault-ceremony.md — Phase 2 ceremony coordination'",
-    "verifier:aggregate": "snarkjs zkey export solidityverifier build/aggregate_sum_final.zkey build/AggregateSumVerifier.sol"
+    "setup:aggregate-dev": "node scripts/setup-dev.mjs",
+    "verifier:aggregate": "snarkjs zkey export solidityverifier build/aggregate_sum_final.zkey build/AggregateSumVerifier.sol",
+    "all:aggregate-dev": "npm run compile:aggregate && npm run setup:aggregate-dev && npm run verifier:aggregate"
+  },
+  "dependencies": {
+    "@stargazempp/shared": "*",
+    "snarkjs": "^0.7.5"
   },
   "devDependencies": {
-    "snarkjs": "^0.7.5"
+    "@types/node": "^20",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.0"
   }
 }
