@@ -192,24 +192,6 @@ async fn handle_event(
             paid_at = e.paid_at,
             "anchor event"
         ),
-        DecodedEvent::ReputationMirrored(e) => info!(
-            slot,
-            signature,
-            kind = event.name(),
-            provider_id = %hex::encode(e.provider_id),
-            score = e.score,
-            "anchor event"
-        ),
-        DecodedEvent::CcipDispatched(e) => info!(
-            slot,
-            signature,
-            kind = event.name(),
-            provider_id = %hex::encode(e.provider_id),
-            score = e.score,
-            dest_chain_selector = e.dest_chain_selector,
-            payload_bytes = e.payload.len(),
-            "anchor event"
-        ),
         DecodedEvent::Staked(e) => info!(
             slot,
             signature,
@@ -280,17 +262,6 @@ async fn handle_event(
             kind = event.name(),
             voter = %e.voter,
             provider_id = %hex::encode(e.provider_id),
-            "anchor event"
-        ),
-        DecodedEvent::StakeDispatched(e) => info!(
-            slot,
-            signature,
-            kind = event.name(),
-            provider_id = %hex::encode(e.provider_id),
-            owner = %e.owner,
-            amount = e.amount,
-            dest_chain_selector = e.dest_chain_selector,
-            payload_bytes = e.payload.len(),
             "anchor event"
         ),
         DecodedEvent::VaultProofVerified(e) => info!(

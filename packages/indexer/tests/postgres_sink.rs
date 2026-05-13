@@ -23,23 +23,20 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 
 use stargaze_events::{
-    CcipDispatched, DecodedEvent, EscrowInitialized, ProviderRegistered, PubkeyBytes,
-    ReputationMirrored, ReputationScoreSet, ReputationVoteBurned, ReputationVoted,
-    RoutingFeeProcessed, SessionOpened, SessionSettled, Slashed, StakeDispatched, StakeMintSet,
-    Staked, StakingInitialized, UnstakeRequested, Unstaked, VaultAuditorKeySet,
-    VaultBuyerKeyRotationUpdated, VaultConfigured, VaultDeactivated, VaultProofVerified,
-    VaultTier, VoucherSettled, X402ReceiptRecorded,
+    DecodedEvent, EscrowInitialized, ProviderRegistered, PubkeyBytes, ReputationScoreSet,
+    ReputationVoteBurned, ReputationVoted, RoutingFeeProcessed, SessionOpened, SessionSettled,
+    Slashed, StakeMintSet, Staked, StakingInitialized, UnstakeRequested, Unstaked,
+    VaultAuditorKeySet, VaultBuyerKeyRotationUpdated, VaultConfigured, VaultDeactivated,
+    VaultProofVerified, VaultTier, VoucherSettled, X402ReceiptRecorded,
 };
 use stargaze_indexer::sink::{EventSink, PostgresSink};
 
-/// All 24 projection tables — the pre-clean step deletes the test slot
+/// All projection tables — the pre-clean step deletes the test slot
 /// range from every one of them before the fixtures are inserted.
 const ALL_TABLES: &[&str] = &[
     "provider_registered",
     "reputation_voted",
     "x402_receipt_recorded",
-    "reputation_mirrored",
-    "ccip_dispatched",
     "staked",
     "unstake_requested",
     "unstaked",
@@ -48,7 +45,6 @@ const ALL_TABLES: &[&str] = &[
     "stake_mint_set",
     "routing_fee_processed",
     "reputation_vote_burned",
-    "stake_dispatched",
     "vault_proof_verified",
     "reputation_score_set",
     "escrow_initialized",
@@ -213,88 +209,6 @@ async fn writes_every_event_variant() {
         .await
         .unwrap();
         assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (x402_receipt_recorded)");
-    }
-
-    // -------- 4. ReputationMirrored --------
-    {
-        let slot = SLOT_BASE + 4;
-        let sig = "test-sig-4";
-        let score: u16 = 750;
-        let event = DecodedEvent::ReputationMirrored(ReputationMirrored {
-            provider_id: [0x41u8; 32],
-            score,
-        });
-        sink.write(slot as u64, Some(sig), &event).await.unwrap();
-
-        let row = sqlx::query(
-            "SELECT slot, signature, provider_id, score \
-             FROM reputation_mirrored WHERE slot = $1",
-        )
-        .bind(slot)
-        .fetch_one(&pool)
-        .await
-        .expect("reputation_mirrored row exists");
-        assert_eq!(row.get::<i64, _>("slot"), slot);
-        assert_eq!(row.get::<String, _>("signature"), sig);
-        assert_eq!(row.get::<Vec<u8>, _>("provider_id"), vec![0x41u8; 32]);
-        assert_eq!(row.get::<i32, _>("score"), score as i32);
-
-        sink.write(slot as u64, Some(sig), &event).await.unwrap();
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM reputation_mirrored WHERE slot = $1",
-        )
-        .bind(slot)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (reputation_mirrored)");
-    }
-
-    // -------- 5. CcipDispatched --------
-    {
-        let slot = SLOT_BASE + 5;
-        let sig = "test-sig-5";
-        let score: u16 = 875;
-        let dest: u64 = 16_015_286_601_757_825_753;
-        let receiver = vec![0xde, 0xad, 0xbe, 0xef];
-        let payload = vec![1, 2, 3, 4, 5];
-        let extra_args = vec![0xaa, 0xbb];
-        let event = DecodedEvent::CcipDispatched(CcipDispatched {
-            provider_id: [0x51u8; 32],
-            score,
-            dest_chain_selector: dest,
-            receiver: receiver.clone(),
-            payload: payload.clone(),
-            extra_args: extra_args.clone(),
-        });
-        sink.write(slot as u64, Some(sig), &event).await.unwrap();
-
-        let row = sqlx::query(
-            "SELECT slot, signature, provider_id, score, dest_chain_selector, receiver, payload, extra_args \
-             FROM ccip_dispatched WHERE slot = $1",
-        )
-        .bind(slot)
-        .fetch_one(&pool)
-        .await
-        .expect("ccip_dispatched row exists");
-        assert_eq!(row.get::<i64, _>("slot"), slot);
-        assert_eq!(row.get::<String, _>("signature"), sig);
-        assert_eq!(row.get::<Vec<u8>, _>("provider_id"), vec![0x51u8; 32]);
-        assert_eq!(row.get::<i32, _>("score"), score as i32);
-        assert_eq!(row.get::<i64, _>("dest_chain_selector"), dest as i64);
-        assert_eq!(row.get::<Vec<u8>, _>("receiver"), receiver);
-        assert_eq!(row.get::<Vec<u8>, _>("payload"), payload);
-        assert_eq!(row.get::<Vec<u8>, _>("extra_args"), extra_args);
-
-        sink.write(slot as u64, Some(sig), &event).await.unwrap();
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM ccip_dispatched WHERE slot = $1",
-        )
-        .bind(slot)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (ccip_dispatched)");
     }
 
     // -------- 6. Staked --------
@@ -594,55 +508,6 @@ async fn writes_every_event_variant() {
         .await
         .unwrap();
         assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (reputation_vote_burned)");
-    }
-
-    // -------- 14. StakeDispatched --------
-    {
-        let slot = SLOT_BASE + 14;
-        let sig = "test-sig-14";
-        let amount: u64 = 100_000_000;
-        let dest: u64 = 16_015_286_601_757_825_753;
-        let receiver = vec![0xfe, 0xed, 0xfa, 0xce];
-        let payload = vec![9, 8, 7, 6, 5, 4, 3, 2, 1];
-        let extra_args = vec![0xcc, 0xdd];
-        let event = DecodedEvent::StakeDispatched(StakeDispatched {
-            provider_id: [0xd1u8; 32],
-            owner: PubkeyBytes([0xd2u8; 32]),
-            amount,
-            dest_chain_selector: dest,
-            receiver: receiver.clone(),
-            payload: payload.clone(),
-            extra_args: extra_args.clone(),
-        });
-        sink.write(slot as u64, Some(sig), &event).await.unwrap();
-
-        let row = sqlx::query(
-            "SELECT slot, signature, provider_id, owner, amount, dest_chain_selector, receiver, payload, extra_args \
-             FROM stake_dispatched WHERE slot = $1",
-        )
-        .bind(slot)
-        .fetch_one(&pool)
-        .await
-        .expect("stake_dispatched row exists");
-        assert_eq!(row.get::<i64, _>("slot"), slot);
-        assert_eq!(row.get::<String, _>("signature"), sig);
-        assert_eq!(row.get::<Vec<u8>, _>("provider_id"), vec![0xd1u8; 32]);
-        assert_eq!(row.get::<Vec<u8>, _>("owner"), vec![0xd2u8; 32]);
-        assert_eq!(row.get::<i64, _>("amount"), amount as i64);
-        assert_eq!(row.get::<i64, _>("dest_chain_selector"), dest as i64);
-        assert_eq!(row.get::<Vec<u8>, _>("receiver"), receiver);
-        assert_eq!(row.get::<Vec<u8>, _>("payload"), payload);
-        assert_eq!(row.get::<Vec<u8>, _>("extra_args"), extra_args);
-
-        sink.write(slot as u64, Some(sig), &event).await.unwrap();
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM stake_dispatched WHERE slot = $1",
-        )
-        .bind(slot)
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (stake_dispatched)");
     }
 
     // -------- 15. VaultProofVerified --------

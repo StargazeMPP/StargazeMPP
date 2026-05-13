@@ -7,15 +7,15 @@
     "description": "Solana-side mirror of StargazeRegistry for Solana-native providers, plus x402 USDC receipt verification."
   },
   "docs": [
-    "StargazeAnchor — Solana-side mirror of the Tempo `StargazeRegistry`.",
+    "StargazeAnchor — Solana-native registry, reputation, staking, and escrow.",
     "",
     "Responsibilities:",
-    "1. Register Solana-native providers (no $GAZE stake here; reputational",
-    "score is mirrored from Tempo via the CCIP bridge).",
+    "1. Register Solana-native providers (the off-chain oracle authority",
+    "mutates `Provider.reputation_score` via `set_reputation_score`).",
     "2. Persist x402 USDC receipts so the indexer can project them into",
     "Postgres without re-fetching tx history.",
-    "3. Cast reputation votes that mirror to Tempo (CPI to the CCIP router",
-    "stubbed for now — wired in M4)."
+    "3. Cast reputation votes and burn one $GAZE per vote (the burn is",
+    "enforced by `reputation_vote_burn`)."
   ],
   "instructions": [
     {
@@ -73,83 +73,6 @@
         {
           "name": "accurate",
           "type": "bool"
-        }
-      ]
-    },
-    {
-      "name": "ccip_mirror_score",
-      "discriminator": [
-        104,
-        29,
-        169,
-        96,
-        154,
-        93,
-        171,
-        35
-      ],
-      "accounts": [
-        {
-          "name": "ccip_router",
-          "signer": true
-        },
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "provider",
-          "writable": true,
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  118,
-                  105,
-                  100,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "provider_id"
-              }
-            ]
-          }
-        }
-      ],
-      "args": [
-        {
-          "name": "provider_id",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        },
-        {
-          "name": "new_score",
-          "type": "u16"
         }
       ]
     },
@@ -595,229 +518,6 @@
               32
             ]
           }
-        }
-      ]
-    },
-    {
-      "name": "dispatch_reputation_to_tempo",
-      "docs": [
-        "Dispatch a reputation snapshot for `provider_id` to the Tempo receiver",
-        "via Chainlink CCIP. The on-chain `Provider.reputation_score` is the",
-        "authoritative value being mirrored.",
-        "",
-        "Payload schema (matches `StargazeCcipReceiver.ccipReceive`):",
-        "`abi.encode(bytes32 providerId, uint16 score)` — 64 bytes total.",
-        "",
-        "CPI into the Chainlink router is wired in M4; for now the message is",
-        "emitted as a `CcipDispatched` event so the indexer can observe it.",
-        "The router program id is supplied via the `CHAINLINK_CCIP_PROGRAM_ID`",
-        "env var at deploy time."
-      ],
-      "discriminator": [
-        228,
-        41,
-        107,
-        2,
-        194,
-        245,
-        109,
-        93
-      ],
-      "accounts": [
-        {
-          "name": "sender",
-          "signer": true
-        },
-        {
-          "name": "config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "provider",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  112,
-                  114,
-                  111,
-                  118,
-                  105,
-                  100,
-                  101,
-                  114
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "provider_id"
-              }
-            ]
-          }
-        },
-        {
-          "name": "ccip_router_program",
-          "docs": [
-            "in by the client so a future CPI can target the configured router."
-          ]
-        }
-      ],
-      "args": [
-        {
-          "name": "provider_id",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        },
-        {
-          "name": "dest_chain_selector",
-          "type": "u64"
-        },
-        {
-          "name": "receiver",
-          "type": "bytes"
-        },
-        {
-          "name": "extra_args",
-          "type": "bytes"
-        }
-      ]
-    },
-    {
-      "name": "dispatch_stake_to_tempo",
-      "docs": [
-        "Dispatch a per-staker stake snapshot for `(provider_id, owner)` to the",
-        "Tempo `StargazeStakeMirror` receiver via Chainlink CCIP. The on-chain",
-        "`StakeAccount.amount` is the authoritative value being mirrored.",
-        "",
-        "Payload schema (matches `StargazeStakeMirror.ccipReceive`):",
-        "`abi.encode(bytes32 providerId, address owner, uint256 amount)` —",
-        "96 bytes total.",
-        "",
-        "Note: `owner` is the Solana staker pubkey truncated to the bottom 20",
-        "bytes to fit Solidity's 32-byte address slot; the Tempo mirror treats",
-        "it as a per-Solana-staker key, NOT an EVM address. The Tempo side",
-        "never needs to send a transaction from this address.",
-        "",
-        "CPI into the Chainlink router is wired in M4; for now the message is",
-        "emitted as a `StakeDispatched` event so the indexer can observe it."
-      ],
-      "discriminator": [
-        7,
-        39,
-        40,
-        162,
-        14,
-        51,
-        20,
-        55
-      ],
-      "accounts": [
-        {
-          "name": "sender",
-          "signer": true
-        },
-        {
-          "name": "staking_config",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  116,
-                  97,
-                  107,
-                  105,
-                  110,
-                  103,
-                  95,
-                  99,
-                  111,
-                  110,
-                  102,
-                  105,
-                  103
-                ]
-              }
-            ]
-          }
-        },
-        {
-          "name": "stake_account",
-          "pda": {
-            "seeds": [
-              {
-                "kind": "const",
-                "value": [
-                  115,
-                  116,
-                  97,
-                  107,
-                  101
-                ]
-              },
-              {
-                "kind": "arg",
-                "path": "provider_id"
-              },
-              {
-                "kind": "arg",
-                "path": "owner"
-              }
-            ]
-          }
-        },
-        {
-          "name": "ccip_router_program",
-          "docs": [
-            "in by the client so a future CPI can target the configured router."
-          ]
-        }
-      ],
-      "args": [
-        {
-          "name": "provider_id",
-          "type": {
-            "array": [
-              "u8",
-              32
-            ]
-          }
-        },
-        {
-          "name": "owner",
-          "type": "pubkey"
-        },
-        {
-          "name": "dest_chain_selector",
-          "type": "u64"
-        },
-        {
-          "name": "receiver",
-          "type": "bytes"
-        },
-        {
-          "name": "extra_args",
-          "type": "bytes"
         }
       ]
     },
@@ -1284,10 +984,7 @@
         "",
         "The reward pool only accumulates here — distribution is deferred.",
         "Defer: staker reward distribution mechanism (pull-based Merkle vs",
-        "push-based proportional) is unresolved.",
-        "",
-        "M4: the `authority` admin gate is swapped for the CCIP fan-out so the",
-        "Tempo routing fee can be processed without a privileged signer."
+        "push-based proportional) is unresolved."
       ],
       "discriminator": [
         11,
@@ -1658,9 +1355,9 @@
       "docs": [
         "Burn one $GAZE token from the voter's ATA as the on-chain cost of",
         "casting a reputation vote against `provider_id`. The vote itself is",
-        "emitted upstream via `cast_reputation_vote` / Tempo; this instruction",
-        "only enforces the token-burn cost. Insufficient balance bubbles up as",
-        "a token-program error."
+        "emitted upstream via `cast_reputation_vote`; this instruction only",
+        "enforces the token-burn cost. Insufficient balance bubbles up as a",
+        "token-program error."
       ],
       "discriminator": [
         220,
@@ -1823,9 +1520,9 @@
     {
       "name": "set_reputation_score",
       "docs": [
-        "Set `provider.reputation_score` directly. Authority-gated (the oracle",
-        "service holds `config.authority`). Replaces `ccip_mirror_score` in a",
-        "Solana-only world — CCIP ingress is no longer relevant."
+        "Set `provider.reputation_score` directly. Authority-gated: the",
+        "off-chain oracle service (holder of `config.authority`) writes the",
+        "canonical score by invoking this instruction."
       ],
       "discriminator": [
         154,
@@ -3181,19 +2878,6 @@
   ],
   "events": [
     {
-      "name": "CcipDispatched",
-      "discriminator": [
-        222,
-        228,
-        128,
-        254,
-        175,
-        147,
-        182,
-        94
-      ]
-    },
-    {
       "name": "EscrowInitialized",
       "discriminator": [
         222,
@@ -3217,19 +2901,6 @@
         19,
         147,
         14
-      ]
-    },
-    {
-      "name": "ReputationMirrored",
-      "discriminator": [
-        78,
-        60,
-        40,
-        19,
-        57,
-        164,
-        83,
-        65
       ]
     },
     {
@@ -3321,19 +2992,6 @@
         53,
         98,
         194
-      ]
-    },
-    {
-      "name": "StakeDispatched",
-      "discriminator": [
-        210,
-        52,
-        51,
-        74,
-        16,
-        179,
-        162,
-        6
       ]
     },
     {
@@ -3627,43 +3285,6 @@
   ],
   "types": [
     {
-      "name": "CcipDispatched",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "provider_id",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "score",
-            "type": "u16"
-          },
-          {
-            "name": "dest_chain_selector",
-            "type": "u64"
-          },
-          {
-            "name": "receiver",
-            "type": "bytes"
-          },
-          {
-            "name": "payload",
-            "type": "bytes"
-          },
-          {
-            "name": "extra_args",
-            "type": "bytes"
-          }
-        ]
-      }
-    },
-    {
       "name": "Config",
       "type": {
         "kind": "struct",
@@ -3789,27 +3410,6 @@
                 32
               ]
             }
-          }
-        ]
-      }
-    },
-    {
-      "name": "ReputationMirrored",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "provider_id",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "score",
-            "type": "u16"
           }
         ]
       }
@@ -4070,47 +3670,6 @@
           {
             "name": "bump",
             "type": "u8"
-          }
-        ]
-      }
-    },
-    {
-      "name": "StakeDispatched",
-      "type": {
-        "kind": "struct",
-        "fields": [
-          {
-            "name": "provider_id",
-            "type": {
-              "array": [
-                "u8",
-                32
-              ]
-            }
-          },
-          {
-            "name": "owner",
-            "type": "pubkey"
-          },
-          {
-            "name": "amount",
-            "type": "u64"
-          },
-          {
-            "name": "dest_chain_selector",
-            "type": "u64"
-          },
-          {
-            "name": "receiver",
-            "type": "bytes"
-          },
-          {
-            "name": "payload",
-            "type": "bytes"
-          },
-          {
-            "name": "extra_args",
-            "type": "bytes"
           }
         ]
       }

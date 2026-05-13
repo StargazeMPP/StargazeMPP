@@ -204,30 +204,6 @@ pub fn ix_record_x402_receipt(
     }
 }
 
-/// Build the `ccip_mirror_score` instruction.
-pub fn ix_ccip_mirror_score(
-    ccip_router: &Pubkey,
-    provider_id: [u8; 32],
-    new_score: u16,
-) -> Instruction {
-    let (config, _) = config_pda();
-    let (provider, _) = provider_pda(&provider_id);
-    let data = stargaze_anchor::instruction::CcipMirrorScore {
-        provider_id,
-        new_score,
-    }
-    .data();
-    Instruction {
-        program_id: PROGRAM_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*ccip_router, true),
-            AccountMeta::new_readonly(config, false),
-            AccountMeta::new(provider, false),
-        ],
-        data,
-    }
-}
-
 /// Build the `set_reputation_score` instruction.
 pub fn ix_set_reputation_score(
     authority: &Pubkey,
@@ -247,68 +223,6 @@ pub fn ix_set_reputation_score(
             AccountMeta::new_readonly(*authority, true),
             AccountMeta::new_readonly(config, false),
             AccountMeta::new(provider, false),
-        ],
-        data,
-    }
-}
-
-/// Build the `dispatch_reputation_to_tempo` instruction.
-pub fn ix_dispatch_reputation_to_tempo(
-    sender: &Pubkey,
-    ccip_router_program: &Pubkey,
-    provider_id: [u8; 32],
-    dest_chain_selector: u64,
-    receiver: Vec<u8>,
-    extra_args: Vec<u8>,
-) -> Instruction {
-    let (config, _) = config_pda();
-    let (provider, _) = provider_pda(&provider_id);
-    let data = stargaze_anchor::instruction::DispatchReputationToTempo {
-        provider_id,
-        dest_chain_selector,
-        receiver,
-        extra_args,
-    }
-    .data();
-    Instruction {
-        program_id: PROGRAM_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*sender, true),
-            AccountMeta::new_readonly(config, false),
-            AccountMeta::new_readonly(provider, false),
-            AccountMeta::new_readonly(*ccip_router_program, false),
-        ],
-        data,
-    }
-}
-
-/// Build the `dispatch_stake_to_tempo` instruction.
-pub fn ix_dispatch_stake_to_tempo(
-    sender: &Pubkey,
-    ccip_router_program: &Pubkey,
-    provider_id: [u8; 32],
-    owner: Pubkey,
-    dest_chain_selector: u64,
-    receiver: Vec<u8>,
-    extra_args: Vec<u8>,
-) -> Instruction {
-    let (staking_config, _) = staking_config_pda();
-    let (stake_account, _) = stake_account_pda(&provider_id, &owner);
-    let data = stargaze_anchor::instruction::DispatchStakeToTempo {
-        provider_id,
-        owner,
-        dest_chain_selector,
-        receiver,
-        extra_args,
-    }
-    .data();
-    Instruction {
-        program_id: PROGRAM_ID,
-        accounts: vec![
-            AccountMeta::new_readonly(*sender, true),
-            AccountMeta::new_readonly(staking_config, false),
-            AccountMeta::new_readonly(stake_account, false),
-            AccountMeta::new_readonly(*ccip_router_program, false),
         ],
         data,
     }

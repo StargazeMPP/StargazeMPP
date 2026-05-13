@@ -1,6 +1,6 @@
 # `@stargazempp/anchor-program`
 
-`StargazeAnchor` — the Solana-side companion to the Tempo EVM contracts, and the home of the `$GAZE` token economy.
+`StargazeAnchor` — the Solana-native registry, reputation, staking, and escrow program, and the home of the `$GAZE` token economy.
 
 ## `$GAZE` SPL
 
@@ -8,10 +8,12 @@
 
 ## Responsibilities
 
-- **Provider mirror.** Solana-native providers register here; reputation scores are mirrored from Tempo via Chainlink CCIP.
+- **Provider registry.** Solana-native providers register here. Reputation scores are written by the off-chain oracle service via `set_reputation_score` (authority-gated).
 - **x402 receipt store.** Records `X402Receipt` PDAs so the indexer can project Solana-rail payments into Postgres without re-fetching tx history.
-- **Reputation votes.** Voters cast Solana-side votes which propagate to Tempo via CCIP for score aggregation.
+- **Reputation votes.** Voters cast Solana-side votes; each vote is gated by a 1-`$GAZE` burn (`reputation_vote_burn`).
 - **`$GAZE` staking + burn ladder.** Per-provider stake escrow with cooldown, admin-gated slashing, plus the routing-fee burn ladder (50/50 burn-vs-staker-rewards) and the 1-`$GAZE` reputation-vote burn.
+- **Session escrow.** USDC voucher escrow for x402 sessions with router-signed settlement.
+- **Vault registry + zk proof verification.** Per-provider vault config and manual CPI into one of three Groth16 verifier programs.
 
 ## Instructions
 
@@ -19,10 +21,9 @@
 |---|---|
 | `initialize` | One-time config PDA setup with authority key. |
 | `register_provider` | Create a `Provider` PDA keyed by `provider_id`. |
-| `cast_reputation_vote` | Emit a vote event that the CCIP relay forwards to Tempo. |
+| `cast_reputation_vote` | Emit a reputation vote event for `provider_id`. The 1-`$GAZE` burn cost is enforced separately by `reputation_vote_burn`. |
 | `record_x402_receipt` | Persist an x402 USDC payment receipt for the indexer. |
-| `ccip_mirror_score` | Authority-only — write the latest reputation score for a provider. |
-| `dispatch_reputation_to_tempo` | Authority-only — emit a CCIP-formatted message mirroring a provider's score to the Tempo `StargazeCcipReceiver`. CPI to the Chainlink router is wired in M4; configure `CHAINLINK_CCIP_PROGRAM_ID` in `.env`. |
+| `set_reputation_score` | Authority-only — write the latest reputation score for a provider (the off-chain oracle holds `config.authority`). |
 | `init_staking` | One-time staking config PDA setup. |
 | `set_stake_mint` | Authority-only — pin the `$GAZE` SPL mint address. |
 | `stake` | Lock `$GAZE` into a per-staker PDA (active stake counter). |
@@ -50,10 +51,6 @@ A per-staker PDA tracks `active` and `cooling_down` amounts. Slashed tokens are 
 | Reputation-vote burn | `reputation_vote_burn(provider_id)` | `token::burn` of exactly `VOTE_BURN_AMOUNT` (1 `$GAZE` @ 6 decimals) from the caller's ATA. Voter signs directly — no admin gate. |
 
 The staker reward pool is **accumulation-only** — distribution mechanism (pull-based Merkle vs push-based proportional) is deferred and tracked separately.
-
-### Future (M4)
-
-- **Routing-fee admin gate → CCIP.** `process_routing_fee_burn` is admin-gated today. M4 swaps the gate for the CCIP fan-out so the Tempo `routingFeeBurn` message can drive the burn without a privileged signer; the 2% PathUSD routing fee bridges to Solana, swaps to `$GAZE`, and feeds the existing 50/50 split.
 
 ## Build & test
 

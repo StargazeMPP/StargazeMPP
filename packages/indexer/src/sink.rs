@@ -155,40 +155,6 @@ impl EventSink for PostgresSink {
                 .execute(&self.pool)
                 .await?;
             }
-            DecodedEvent::ReputationMirrored(e) => {
-                sqlx::query(
-                    "INSERT INTO reputation_mirrored \
-                     (slot, signature, provider_id, score) \
-                     VALUES ($1, $2, $3, $4) \
-                     ON CONFLICT (slot, signature) DO NOTHING",
-                )
-                .bind(slot_i64)
-                .bind(sig)
-                .bind(e.provider_id.as_slice())
-                .bind(e.score as i32)
-                .execute(&self.pool)
-                .await?;
-            }
-            DecodedEvent::CcipDispatched(e) => {
-                // TODO: widen to NUMERIC if dest_chain_selector ever exceeds i64::MAX.
-                // CCIP selectors today fit in i64 (Tempo testnet = 16_015_286_601_757_825_753).
-                sqlx::query(
-                    "INSERT INTO ccip_dispatched \
-                     (slot, signature, provider_id, score, dest_chain_selector, receiver, payload, extra_args) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) \
-                     ON CONFLICT (slot, signature) DO NOTHING",
-                )
-                .bind(slot_i64)
-                .bind(sig)
-                .bind(e.provider_id.as_slice())
-                .bind(e.score as i32)
-                .bind(e.dest_chain_selector as i64)
-                .bind(e.receiver.as_slice())
-                .bind(e.payload.as_slice())
-                .bind(e.extra_args.as_slice())
-                .execute(&self.pool)
-                .await?;
-            }
             DecodedEvent::Staked(e) => {
                 // TODO: widen to NUMERIC if amount/total ever exceed i64::MAX.
                 sqlx::query(
@@ -312,27 +278,6 @@ impl EventSink for PostgresSink {
                 .bind(sig)
                 .bind(e.voter.0.as_slice())
                 .bind(e.provider_id.as_slice())
-                .execute(&self.pool)
-                .await?;
-            }
-            DecodedEvent::StakeDispatched(e) => {
-                // TODO: widen to NUMERIC if amount/dest_chain_selector ever exceed i64::MAX.
-                // CCIP selectors today fit in i64 (Tempo testnet = 16_015_286_601_757_825_753).
-                sqlx::query(
-                    "INSERT INTO stake_dispatched \
-                     (slot, signature, provider_id, owner, amount, dest_chain_selector, receiver, payload, extra_args) \
-                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
-                     ON CONFLICT (slot, signature) DO NOTHING",
-                )
-                .bind(slot_i64)
-                .bind(sig)
-                .bind(e.provider_id.as_slice())
-                .bind(e.owner.0.as_slice())
-                .bind(e.amount as i64)
-                .bind(e.dest_chain_selector as i64)
-                .bind(e.receiver.as_slice())
-                .bind(e.payload.as_slice())
-                .bind(e.extra_args.as_slice())
                 .execute(&self.pool)
                 .await?;
             }
@@ -503,7 +448,7 @@ mod tests {
 
     use super::*;
     use stargaze_events::{
-        CcipDispatched, DecodedEvent, ProviderRegistered, PubkeyBytes, ReputationVoted,
+        DecodedEvent, ProviderRegistered, PubkeyBytes, ReputationScoreSet, ReputationVoted,
     };
 
     fn provider_event() -> DecodedEvent {
@@ -523,14 +468,10 @@ mod tests {
         })
     }
 
-    fn ccip_event() -> DecodedEvent {
-        DecodedEvent::CcipDispatched(CcipDispatched {
+    fn score_event() -> DecodedEvent {
+        DecodedEvent::ReputationScoreSet(ReputationScoreSet {
             provider_id: [42u8; 32],
-            score: 500,
-            dest_chain_selector: 16_015_286_601_757_825_753,
-            receiver: vec![0xde, 0xad, 0xbe, 0xef],
-            payload: vec![1, 2, 3],
-            extra_args: vec![],
+            score: 720,
         })
     }
 
@@ -539,7 +480,7 @@ mod tests {
         let sink = VecSink::new();
         sink.write(100, Some("sig-a"), &provider_event()).await.unwrap();
         sink.write(101, None, &voted_event()).await.unwrap();
-        sink.write(102, Some("sig-c"), &ccip_event()).await.unwrap();
+        sink.write(102, Some("sig-c"), &score_event()).await.unwrap();
 
         let snap = sink.snapshot();
         assert_eq!(snap.len(), 3);
@@ -554,7 +495,7 @@ mod tests {
 
         assert_eq!(snap[2].0, 102);
         assert_eq!(snap[2].1.as_deref(), Some("sig-c"));
-        assert_eq!(snap[2].2, ccip_event());
+        assert_eq!(snap[2].2, score_event());
     }
 
     #[tokio::test]

@@ -16,9 +16,8 @@ use stargaze_anchor::{
 };
 use stargaze_anchor_tests::{
     compute_signals_hash, create_associated_token_account, create_mint, ensure_system_account,
-    ix_claim_unstake, ix_configure_vault, ix_deactivate_vault, ix_dispatch_reputation_to_tempo,
-    ix_dispatch_stake_to_tempo, ix_init_escrow, ix_init_staking, ix_initialize,
-    ix_process_routing_fee_burn, ix_register_provider, ix_reputation_vote_burn,
+    ix_claim_unstake, ix_configure_vault, ix_deactivate_vault, ix_init_escrow, ix_init_staking,
+    ix_initialize, ix_process_routing_fee_burn, ix_register_provider, ix_reputation_vote_burn,
     ix_request_unstake, ix_set_reputation_score, ix_set_stake_mint, ix_set_vault_auditor_key,
     ix_set_vault_buyer_key_rotation_cid, ix_slash, ix_stake, ix_submit_vault_proof, mint_to,
     setup_svm, setup_svm_with_verifiers, warp_clock, BURN_DESTINATION,
@@ -44,56 +43,11 @@ fn dump(label: &str, logs: &[String]) {
     }
 }
 
-#[test]
-fn dumps_register_and_ccip_dispatch_log_lines() {
-    let (mut svm, authority) = setup_svm();
-    let provider_id = [42u8; 32];
-
-    let m1 = send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
-    )
-    .expect("initialize");
-    dump("initialize", &m1.logs);
-
-    let m2 = send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_register_provider(
-            &authority.pubkey(),
-            provider_id,
-            [7u8; 32],
-            [8u8; 32],
-        )],
-    )
-    .expect("register");
-    dump("register", &m2.logs);
-
-    let m3 = send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_dispatch_reputation_to_tempo(
-            &authority.pubkey(),
-            &Pubkey::new_unique(),
-            provider_id,
-            123_456_789,
-            vec![0xde, 0xad, 0xbe, 0xef],
-            vec![],
-        )],
-    )
-    .expect("dispatch");
-    dump("dispatch", &m3.logs);
-}
-
 /// Captures `Program data:` lines for every staking + burn-ladder event.
 /// Walks the full lifecycle: init_staking -> set_stake_mint -> stake ->
 /// request_unstake -> claim_unstake -> slash -> process_routing_fee_burn ->
-/// reputation_vote_burn -> dispatch_stake_to_tempo. Each instruction emits
-/// exactly one Anchor event so the dump is straightforward.
+/// reputation_vote_burn. Each instruction emits exactly one Anchor event so
+/// the dump is straightforward.
 #[test]
 fn dumps_staking_and_burn_log_lines() {
     let (mut svm, authority) = setup_svm();
@@ -224,24 +178,6 @@ fn dumps_staking_and_burn_log_lines() {
     )
     .expect("reputation_vote_burn");
     dump("reputation_vote_burn", &m_vote.logs);
-
-    // Dispatch the per-staker stake snapshot via CCIP.
-    let m_dispatch_stake = send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_dispatch_stake_to_tempo(
-            &authority.pubkey(),
-            &Pubkey::new_unique(),
-            provider_id,
-            staker.pubkey(),
-            123_456_789,
-            vec![0xde, 0xad, 0xbe, 0xef],
-            vec![],
-        )],
-    )
-    .expect("dispatch_stake_to_tempo");
-    dump("dispatch_stake_to_tempo", &m_dispatch_stake.logs);
 }
 
 /// Captures `Program data:` lines for the escrow + vault registry + verifier

@@ -62,15 +62,15 @@ pub const ROUTING_FEE_BPS: u16 = 200;
 const VERIFY_IX_DISCRIMINATOR: [u8; 8] =
     [0x85, 0xa1, 0x8d, 0x30, 0x78, 0xc6, 0x58, 0x96];
 
-/// StargazeAnchor — Solana-side mirror of the Tempo `StargazeRegistry`.
+/// StargazeAnchor — Solana-native registry, reputation, staking, and escrow.
 ///
 /// Responsibilities:
-///   1. Register Solana-native providers (no $GAZE stake here; reputational
-///      score is mirrored from Tempo via the CCIP bridge).
+///   1. Register Solana-native providers (the off-chain oracle authority
+///      mutates `Provider.reputation_score` via `set_reputation_score`).
 ///   2. Persist x402 USDC receipts so the indexer can project them into
 ///      Postgres without re-fetching tx history.
-///   3. Cast reputation votes that mirror to Tempo (CPI to the CCIP router
-///      stubbed for now — wired in M4).
+///   3. Cast reputation votes and burn one $GAZE per vote (the burn is
+///      enforced by `reputation_vote_burn`).
 #[program]
 pub mod stargaze_anchor {
     use super::*;
@@ -94,7 +94,7 @@ pub mod stargaze_anchor {
         provider.provider_id = provider_id;
         provider.category_hash = category_hash;
         provider.meta_cid = meta_cid;
-        provider.reputation_score = 500; // neutral midpoint, mirrored from Tempo later
+        provider.reputation_score = 500; // neutral midpoint; updated by the oracle via set_reputation_score
         provider.registered_at = Clock::get()?.unix_timestamp;
         provider.bump = ctx.bumps.provider;
 
@@ -120,7 +120,8 @@ pub mod stargaze_anchor {
             voter: ctx.accounts.voter.key(),
             accurate,
         });
-        // TODO: CPI to CCIP router so the burn registers on Tempo (M4).
+        // The $GAZE burn that gates each vote is enforced separately by
+        // `reputation_vote_burn`; this instruction only emits the vote.
         Ok(())
     }
 
@@ -145,132 +146,6 @@ pub mod stargaze_anchor {
             amount,
             paid_at: receipt.paid_at,
         });
-        Ok(())
-    }
-
-    pub fn ccip_mirror_score(
-        ctx: Context<CcipMirrorScore>,
-        provider_id: [u8; 32],
-        new_score: u16,
-    ) -> Result<()> {
-        require!(new_score <= 1000, StargazeAnchorError::ScoreOutOfRange);
-        require_keys_eq!(
-            ctx.accounts.ccip_router.key(),
-            ctx.accounts.config.authority,
-            StargazeAnchorError::Unauthorized
-        );
-        let provider = &mut ctx.accounts.provider;
-        provider.reputation_score = new_score;
-        emit!(ReputationMirrored {
-            provider_id,
-            score: new_score,
-        });
-        Ok(())
-    }
-
-    /// Dispatch a reputation snapshot for `provider_id` to the Tempo receiver
-    /// via Chainlink CCIP. The on-chain `Provider.reputation_score` is the
-    /// authoritative value being mirrored.
-    ///
-    /// Payload schema (matches `StargazeCcipReceiver.ccipReceive`):
-    ///   `abi.encode(bytes32 providerId, uint16 score)` — 64 bytes total.
-    ///
-    /// CPI into the Chainlink router is wired in M4; for now the message is
-    /// emitted as a `CcipDispatched` event so the indexer can observe it.
-    /// The router program id is supplied via the `CHAINLINK_CCIP_PROGRAM_ID`
-    /// env var at deploy time.
-    pub fn dispatch_reputation_to_tempo(
-        ctx: Context<DispatchReputationToTempo>,
-        provider_id: [u8; 32],
-        dest_chain_selector: u64,
-        receiver: Vec<u8>,
-        extra_args: Vec<u8>,
-    ) -> Result<()> {
-        require_keys_eq!(
-            ctx.accounts.sender.key(),
-            ctx.accounts.config.authority,
-            StargazeAnchorError::Unauthorized
-        );
-
-        let score = ctx.accounts.provider.reputation_score;
-
-        let mut payload = Vec::with_capacity(64);
-        payload.extend_from_slice(&provider_id);
-        payload.extend_from_slice(&[0u8; 30]);
-        payload.extend_from_slice(&score.to_be_bytes());
-
-        emit!(CcipDispatched {
-            provider_id,
-            score,
-            dest_chain_selector,
-            receiver,
-            payload,
-            extra_args,
-        });
-
-        // M4: CPI to ctx.accounts.ccip_router_program goes here.
-        let _ = &ctx.accounts.ccip_router_program;
-
-        Ok(())
-    }
-
-    /// Dispatch a per-staker stake snapshot for `(provider_id, owner)` to the
-    /// Tempo `StargazeStakeMirror` receiver via Chainlink CCIP. The on-chain
-    /// `StakeAccount.amount` is the authoritative value being mirrored.
-    ///
-    /// Payload schema (matches `StargazeStakeMirror.ccipReceive`):
-    ///   `abi.encode(bytes32 providerId, address owner, uint256 amount)` —
-    ///   96 bytes total.
-    ///
-    /// Note: `owner` is the Solana staker pubkey truncated to the bottom 20
-    /// bytes to fit Solidity's 32-byte address slot; the Tempo mirror treats
-    /// it as a per-Solana-staker key, NOT an EVM address. The Tempo side
-    /// never needs to send a transaction from this address.
-    ///
-    /// CPI into the Chainlink router is wired in M4; for now the message is
-    /// emitted as a `StakeDispatched` event so the indexer can observe it.
-    pub fn dispatch_stake_to_tempo(
-        ctx: Context<DispatchStakeToTempo>,
-        provider_id: [u8; 32],
-        owner: Pubkey,
-        dest_chain_selector: u64,
-        receiver: Vec<u8>,
-        extra_args: Vec<u8>,
-    ) -> Result<()> {
-        require_keys_eq!(
-            ctx.accounts.sender.key(),
-            ctx.accounts.staking_config.authority,
-            StargazeAnchorError::Unauthorized
-        );
-
-        let amount = ctx.accounts.stake_account.amount;
-
-        // ABI: bytes32 providerId || address owner (right-aligned in 32 bytes)
-        //   || uint256 amount (big-endian). 96 bytes total.
-        let mut payload = Vec::with_capacity(96);
-        payload.extend_from_slice(&provider_id);
-        // Solidity address is 20 bytes right-aligned in a 32-byte slot: 12
-        // leading zero bytes, then the bottom 20 bytes of the Solana pubkey.
-        payload.extend_from_slice(&[0u8; 12]);
-        let owner_bytes = owner.to_bytes();
-        payload.extend_from_slice(&owner_bytes[12..32]);
-        // uint256 amount as big-endian, left-padded with 24 zero bytes.
-        payload.extend_from_slice(&[0u8; 24]);
-        payload.extend_from_slice(&amount.to_be_bytes());
-
-        emit!(StakeDispatched {
-            provider_id,
-            owner,
-            amount,
-            dest_chain_selector,
-            receiver,
-            payload,
-            extra_args,
-        });
-
-        // M4: CPI to ctx.accounts.ccip_router_program goes here.
-        let _ = &ctx.accounts.ccip_router_program;
-
         Ok(())
     }
 
@@ -555,9 +430,6 @@ pub mod stargaze_anchor {
     /// The reward pool only accumulates here — distribution is deferred.
     /// Defer: staker reward distribution mechanism (pull-based Merkle vs
     /// push-based proportional) is unresolved.
-    ///
-    /// M4: the `authority` admin gate is swapped for the CCIP fan-out so the
-    /// Tempo routing fee can be processed without a privileged signer.
     pub fn process_routing_fee_burn(
         ctx: Context<ProcessRoutingFeeBurn>,
         amount: u64,
@@ -617,9 +489,9 @@ pub mod stargaze_anchor {
 
     /// Burn one $GAZE token from the voter's ATA as the on-chain cost of
     /// casting a reputation vote against `provider_id`. The vote itself is
-    /// emitted upstream via `cast_reputation_vote` / Tempo; this instruction
-    /// only enforces the token-burn cost. Insufficient balance bubbles up as
-    /// a token-program error.
+    /// emitted upstream via `cast_reputation_vote`; this instruction only
+    /// enforces the token-burn cost. Insufficient balance bubbles up as a
+    /// token-program error.
     pub fn reputation_vote_burn(
         ctx: Context<ReputationVoteBurn>,
         provider_id: [u8; 32],
@@ -644,9 +516,9 @@ pub mod stargaze_anchor {
         Ok(())
     }
 
-    /// Set `provider.reputation_score` directly. Authority-gated (the oracle
-    /// service holds `config.authority`). Replaces `ccip_mirror_score` in a
-    /// Solana-only world — CCIP ingress is no longer relevant.
+    /// Set `provider.reputation_score` directly. Authority-gated: the
+    /// off-chain oracle service (holder of `config.authority`) writes the
+    /// canonical score by invoking this instruction.
     pub fn set_reputation_score(
         ctx: Context<SetReputationScore>,
         provider_id: [u8; 32],
@@ -1283,20 +1155,6 @@ pub struct RecordX402Receipt<'info> {
 
 #[derive(Accounts)]
 #[instruction(provider_id: [u8; 32])]
-pub struct CcipMirrorScore<'info> {
-    pub ccip_router: Signer<'info>,
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Account<'info, Config>,
-    #[account(
-        mut,
-        seeds = [b"provider", provider_id.as_ref()],
-        bump = provider.bump
-    )]
-    pub provider: Account<'info, Provider>,
-}
-
-#[derive(Accounts)]
-#[instruction(provider_id: [u8; 32])]
 pub struct SetReputationScore<'info> {
     pub authority: Signer<'info>,
     #[account(seeds = [b"config"], bump = config.bump)]
@@ -1307,38 +1165,6 @@ pub struct SetReputationScore<'info> {
         bump = provider.bump
     )]
     pub provider: Account<'info, Provider>,
-}
-
-#[derive(Accounts)]
-#[instruction(provider_id: [u8; 32])]
-pub struct DispatchReputationToTempo<'info> {
-    pub sender: Signer<'info>,
-    #[account(seeds = [b"config"], bump = config.bump)]
-    pub config: Account<'info, Config>,
-    #[account(
-        seeds = [b"provider", provider_id.as_ref()],
-        bump = provider.bump
-    )]
-    pub provider: Account<'info, Provider>,
-    /// CHECK: Chainlink CCIP Solana router program. Not yet invoked — passed
-    /// in by the client so a future CPI can target the configured router.
-    pub ccip_router_program: UncheckedAccount<'info>,
-}
-
-#[derive(Accounts)]
-#[instruction(provider_id: [u8; 32], owner: Pubkey)]
-pub struct DispatchStakeToTempo<'info> {
-    pub sender: Signer<'info>,
-    #[account(seeds = [b"staking_config"], bump = staking_config.bump)]
-    pub staking_config: Account<'info, StakingConfig>,
-    #[account(
-        seeds = [b"stake", provider_id.as_ref(), owner.as_ref()],
-        bump = stake_account.bump
-    )]
-    pub stake_account: Account<'info, StakeAccount>,
-    /// CHECK: Chainlink CCIP Solana router program. Not yet invoked — passed
-    /// in by the client so a future CPI can target the configured router.
-    pub ccip_router_program: UncheckedAccount<'info>,
 }
 
 #[derive(Accounts)]
@@ -1651,36 +1477,9 @@ pub struct X402ReceiptRecorded {
 }
 
 #[event]
-pub struct ReputationMirrored {
-    pub provider_id: [u8; 32],
-    pub score: u16,
-}
-
-#[event]
 pub struct ReputationScoreSet {
     pub provider_id: [u8; 32],
     pub score: u16,
-}
-
-#[event]
-pub struct CcipDispatched {
-    pub provider_id: [u8; 32],
-    pub score: u16,
-    pub dest_chain_selector: u64,
-    pub receiver: Vec<u8>,
-    pub payload: Vec<u8>,
-    pub extra_args: Vec<u8>,
-}
-
-#[event]
-pub struct StakeDispatched {
-    pub provider_id: [u8; 32],
-    pub owner: Pubkey,
-    pub amount: u64,
-    pub dest_chain_selector: u64,
-    pub receiver: Vec<u8>,
-    pub payload: Vec<u8>,
-    pub extra_args: Vec<u8>,
 }
 
 #[event]

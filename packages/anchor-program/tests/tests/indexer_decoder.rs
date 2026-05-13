@@ -22,8 +22,7 @@ use stargaze_anchor::{
 };
 use stargaze_anchor_tests::{
     compute_signals_hash, create_associated_token_account, create_mint, ensure_system_account,
-    ix_cast_reputation_vote, ix_ccip_mirror_score, ix_claim_unstake, ix_configure_vault,
-    ix_deactivate_vault, ix_dispatch_reputation_to_tempo, ix_dispatch_stake_to_tempo,
+    ix_cast_reputation_vote, ix_claim_unstake, ix_configure_vault, ix_deactivate_vault,
     ix_init_escrow, ix_init_staking, ix_initialize, ix_process_routing_fee_burn,
     ix_record_x402_receipt, ix_register_provider, ix_reputation_vote_burn, ix_request_unstake,
     ix_set_reputation_score, ix_set_stake_mint, ix_set_vault_auditor_key,
@@ -229,104 +228,6 @@ fn decodes_x402_receipt_recorded_from_litesvm() {
     assert_eq!(e.amount, amount);
     // setup_svm pins unix_timestamp to 1_700_000_000.
     assert_eq!(e.paid_at, 1_700_000_000);
-}
-
-#[test]
-fn decodes_reputation_mirrored_from_litesvm() {
-    let (mut svm, authority) = setup_svm();
-    let provider_id = [11u8; 32];
-
-    send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
-    )
-    .expect("initialize");
-    send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_register_provider(
-            &authority.pubkey(),
-            provider_id,
-            [0u8; 32],
-            [0u8; 32],
-        )],
-    )
-    .expect("register");
-
-    let meta = send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_ccip_mirror_score(&authority.pubkey(), provider_id, 875)],
-    )
-    .expect("ccip_mirror_score");
-
-    let DecodedEvent::ReputationMirrored(e) = decode_single(&meta.logs) else {
-        panic!("expected ReputationMirrored");
-    };
-    assert_eq!(e.provider_id, provider_id);
-    assert_eq!(e.score, 875);
-}
-
-#[test]
-fn decodes_ccip_dispatched_from_litesvm() {
-    let (mut svm, authority) = setup_svm();
-    let ccip_router = Pubkey::new_unique();
-    let provider_id = [12u8; 32];
-    let dest_selector: u64 = 16_015_286_601_757_825_753;
-    let receiver = vec![0xde, 0xad, 0xbe, 0xef];
-
-    send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
-    )
-    .expect("initialize");
-    send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_register_provider(
-            &authority.pubkey(),
-            provider_id,
-            [0u8; 32],
-            [0u8; 32],
-        )],
-    )
-    .expect("register");
-
-    let meta = send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_dispatch_reputation_to_tempo(
-            &authority.pubkey(),
-            &ccip_router,
-            provider_id,
-            dest_selector,
-            receiver.clone(),
-            vec![],
-        )],
-    )
-    .expect("dispatch");
-
-    let DecodedEvent::CcipDispatched(e) = decode_single(&meta.logs) else {
-        panic!("expected CcipDispatched");
-    };
-    assert_eq!(e.provider_id, provider_id);
-    assert_eq!(e.score, 500); // neutral midpoint set by register_provider
-    assert_eq!(e.dest_chain_selector, dest_selector);
-    assert_eq!(e.receiver, receiver);
-    // ABI: bytes32 providerId || 30 zero bytes || uint16 score (big-endian).
-    assert_eq!(e.payload.len(), 64);
-    assert_eq!(&e.payload[..32], &provider_id);
-    assert!(e.payload[32..62].iter().all(|b| *b == 0));
-    assert_eq!(u16::from_be_bytes([e.payload[62], e.payload[63]]), 500);
-    assert!(e.extra_args.is_empty());
 }
 
 #[test]
@@ -617,64 +518,6 @@ fn decodes_reputation_vote_burned_from_litesvm() {
     };
     assert_eq!(e.voter, PubkeyBytes(voter.pubkey().to_bytes()));
     assert_eq!(e.provider_id, provider_id);
-}
-
-#[test]
-fn decodes_stake_dispatched_from_litesvm() {
-    let (mut svm, authority) = setup_svm();
-    let provider_id = [18u8; 32];
-    let ccip_router = Pubkey::new_unique();
-    let dest_selector: u64 = 16_015_286_601_757_825_753;
-    let receiver = vec![0xde, 0xad, 0xbe, 0xef];
-
-    let initial = 5 * MIN_STAKE_DEFAULT;
-    let (mint_kp, staker, _staker_ata) = bootstrap_with_mint(&mut svm, &authority, initial);
-    let mint = mint_kp.pubkey();
-
-    let stake_amount: u64 = 100_000_000;
-    send(
-        &mut svm,
-        &staker,
-        &[&staker],
-        &[ix_stake(&staker.pubkey(), &mint, provider_id, stake_amount)],
-    )
-    .expect("stake");
-
-    let meta = send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_dispatch_stake_to_tempo(
-            &authority.pubkey(),
-            &ccip_router,
-            provider_id,
-            staker.pubkey(),
-            dest_selector,
-            receiver.clone(),
-            vec![],
-        )],
-    )
-    .expect("dispatch_stake_to_tempo");
-
-    let DecodedEvent::StakeDispatched(e) = decode_single(&meta.logs) else {
-        panic!("expected StakeDispatched");
-    };
-    assert_eq!(e.provider_id, provider_id);
-    assert_eq!(e.owner, PubkeyBytes(staker.pubkey().to_bytes()));
-    assert_eq!(e.amount, stake_amount);
-    assert_eq!(e.dest_chain_selector, dest_selector);
-    assert_eq!(e.receiver, receiver);
-    // ABI: bytes32 providerId || 12 zero pad || owner[12..32] || 24 zero pad || u64 BE.
-    assert_eq!(e.payload.len(), 96);
-    assert_eq!(&e.payload[0..32], &provider_id);
-    assert!(e.payload[32..44].iter().all(|b| *b == 0));
-    assert_eq!(&e.payload[44..64], &staker.pubkey().to_bytes()[12..32]);
-    assert!(e.payload[64..88].iter().all(|b| *b == 0));
-    assert_eq!(
-        u64::from_be_bytes(e.payload[88..96].try_into().unwrap()),
-        stake_amount,
-    );
-    assert!(e.extra_args.is_empty());
 }
 
 #[test]

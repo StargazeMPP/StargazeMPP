@@ -58,22 +58,6 @@ pub struct X402ReceiptRecorded {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
-pub struct ReputationMirrored {
-    pub provider_id: [u8; 32],
-    pub score: u16,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
-pub struct CcipDispatched {
-    pub provider_id: [u8; 32],
-    pub score: u16,
-    pub dest_chain_selector: u64,
-    pub receiver: Vec<u8>,
-    pub payload: Vec<u8>,
-    pub extra_args: Vec<u8>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
 pub struct Staked {
     pub provider_id: [u8; 32],
     pub owner: PubkeyBytes,
@@ -127,17 +111,6 @@ pub struct RoutingFeeProcessed {
 pub struct ReputationVoteBurned {
     pub voter: PubkeyBytes,
     pub provider_id: [u8; 32],
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
-pub struct StakeDispatched {
-    pub provider_id: [u8; 32],
-    pub owner: PubkeyBytes,
-    pub amount: u64,
-    pub dest_chain_selector: u64,
-    pub receiver: Vec<u8>,
-    pub payload: Vec<u8>,
-    pub extra_args: Vec<u8>,
 }
 
 /// Mirror of the on-chain `stargaze_anchor::VaultTier` enum. Variants must
@@ -235,8 +208,6 @@ pub enum DecodedEvent {
     ProviderRegistered(ProviderRegistered),
     ReputationVoted(ReputationVoted),
     X402ReceiptRecorded(X402ReceiptRecorded),
-    ReputationMirrored(ReputationMirrored),
-    CcipDispatched(CcipDispatched),
     Staked(Staked),
     UnstakeRequested(UnstakeRequested),
     Unstaked(Unstaked),
@@ -245,7 +216,6 @@ pub enum DecodedEvent {
     StakeMintSet(StakeMintSet),
     RoutingFeeProcessed(RoutingFeeProcessed),
     ReputationVoteBurned(ReputationVoteBurned),
-    StakeDispatched(StakeDispatched),
     VaultProofVerified(VaultProofVerified),
     ReputationScoreSet(ReputationScoreSet),
     EscrowInitialized(EscrowInitialized),
@@ -264,8 +234,6 @@ impl DecodedEvent {
             DecodedEvent::ProviderRegistered(_) => "ProviderRegistered",
             DecodedEvent::ReputationVoted(_) => "ReputationVoted",
             DecodedEvent::X402ReceiptRecorded(_) => "X402ReceiptRecorded",
-            DecodedEvent::ReputationMirrored(_) => "ReputationMirrored",
-            DecodedEvent::CcipDispatched(_) => "CcipDispatched",
             DecodedEvent::Staked(_) => "Staked",
             DecodedEvent::UnstakeRequested(_) => "UnstakeRequested",
             DecodedEvent::Unstaked(_) => "Unstaked",
@@ -274,7 +242,6 @@ impl DecodedEvent {
             DecodedEvent::StakeMintSet(_) => "StakeMintSet",
             DecodedEvent::RoutingFeeProcessed(_) => "RoutingFeeProcessed",
             DecodedEvent::ReputationVoteBurned(_) => "ReputationVoteBurned",
-            DecodedEvent::StakeDispatched(_) => "StakeDispatched",
             DecodedEvent::VaultProofVerified(_) => "VaultProofVerified",
             DecodedEvent::ReputationScoreSet(_) => "ReputationScoreSet",
             DecodedEvent::EscrowInitialized(_) => "EscrowInitialized",
@@ -302,10 +269,6 @@ pub static DISC_REPUTATION_VOTED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("ReputationVoted"));
 pub static DISC_X402_RECEIPT_RECORDED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("X402ReceiptRecorded"));
-pub static DISC_REPUTATION_MIRRORED: LazyLock<[u8; 8]> =
-    LazyLock::new(|| anchor_event_discriminator("ReputationMirrored"));
-pub static DISC_CCIP_DISPATCHED: LazyLock<[u8; 8]> =
-    LazyLock::new(|| anchor_event_discriminator("CcipDispatched"));
 pub static DISC_STAKED: LazyLock<[u8; 8]> = LazyLock::new(|| anchor_event_discriminator("Staked"));
 pub static DISC_UNSTAKE_REQUESTED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("UnstakeRequested"));
@@ -321,8 +284,6 @@ pub static DISC_ROUTING_FEE_PROCESSED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("RoutingFeeProcessed"));
 pub static DISC_REPUTATION_VOTE_BURNED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("ReputationVoteBurned"));
-pub static DISC_STAKE_DISPATCHED: LazyLock<[u8; 8]> =
-    LazyLock::new(|| anchor_event_discriminator("StakeDispatched"));
 pub static DISC_VAULT_PROOF_VERIFIED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("VaultProofVerified"));
 pub static DISC_REPUTATION_SCORE_SET: LazyLock<[u8; 8]> =
@@ -369,12 +330,6 @@ pub fn decode_event_bytes(bytes: &[u8]) -> Option<DecodedEvent> {
     if disc == DISC_X402_RECEIPT_RECORDED.as_ref() {
         return X402ReceiptRecorded::deserialize(&mut rest).ok().map(DecodedEvent::X402ReceiptRecorded);
     }
-    if disc == DISC_REPUTATION_MIRRORED.as_ref() {
-        return ReputationMirrored::deserialize(&mut rest).ok().map(DecodedEvent::ReputationMirrored);
-    }
-    if disc == DISC_CCIP_DISPATCHED.as_ref() {
-        return CcipDispatched::deserialize(&mut rest).ok().map(DecodedEvent::CcipDispatched);
-    }
     if disc == DISC_STAKED.as_ref() {
         return Staked::deserialize(&mut rest).ok().map(DecodedEvent::Staked);
     }
@@ -398,9 +353,6 @@ pub fn decode_event_bytes(bytes: &[u8]) -> Option<DecodedEvent> {
     }
     if disc == DISC_REPUTATION_VOTE_BURNED.as_ref() {
         return ReputationVoteBurned::deserialize(&mut rest).ok().map(DecodedEvent::ReputationVoteBurned);
-    }
-    if disc == DISC_STAKE_DISPATCHED.as_ref() {
-        return StakeDispatched::deserialize(&mut rest).ok().map(DecodedEvent::StakeDispatched);
     }
     if disc == DISC_VAULT_PROOF_VERIFIED.as_ref() {
         return VaultProofVerified::deserialize(&mut rest).ok().map(DecodedEvent::VaultProofVerified);
@@ -507,29 +459,6 @@ mod tests {
     }
 
     #[test]
-    fn decodes_reputation_mirrored() {
-        let event = ReputationMirrored { provider_id: [11u8; 32], score: 750 };
-        let log = synth_log(&DISC_REPUTATION_MIRRORED, borsh::to_vec(&event).unwrap());
-        let decoded = decode_program_log(&log).expect("decodes");
-        assert!(matches!(decoded, DecodedEvent::ReputationMirrored(ref e) if e == &event));
-    }
-
-    #[test]
-    fn decodes_ccip_dispatched() {
-        let event = CcipDispatched {
-            provider_id: [12u8; 32],
-            score: 875,
-            dest_chain_selector: 16_015_286_601_757_825_753,
-            receiver: vec![0xde, 0xad, 0xbe, 0xef],
-            payload: vec![1, 2, 3],
-            extra_args: vec![],
-        };
-        let log = synth_log(&DISC_CCIP_DISPATCHED, borsh::to_vec(&event).unwrap());
-        let decoded = decode_program_log(&log).expect("decodes");
-        assert!(matches!(decoded, DecodedEvent::CcipDispatched(ref e) if e == &event));
-    }
-
-    #[test]
     fn ignores_non_program_data_lines() {
         assert!(decode_program_log("Program log: register_provider").is_none());
         assert!(decode_program_log("Program returned success").is_none());
@@ -546,36 +475,6 @@ mod tests {
     fn ignores_malformed_base64() {
         let log = format!("{}!!!not-base64!!!", PROGRAM_DATA_PREFIX);
         assert!(decode_program_log(&log).is_none());
-    }
-
-    /// Real `CcipDispatched` log line captured from a litesvm run of
-    /// `dispatch_reputation_to_tempo` with deterministic inputs:
-    ///   provider_id = [42u8; 32]
-    ///   score = 500 (the post-register neutral midpoint)
-    ///   dest_chain_selector = 123_456_789
-    ///   receiver = [0xde, 0xad, 0xbe, 0xef]
-    ///   payload = provider_id || [0u8; 30] || u16::to_be_bytes(score)
-    ///   extra_args = vec![]
-    /// Captured via `cargo test -p stargaze_anchor_tests --test dump_event_logs -- --nocapture`.
-    const CCIP_DISPATCHED_FIXTURE: &str = "Program data: 3uSA/q+Ttl4qKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKvQBFc1bBwAAAAAEAAAA3q2+70AAAAAqKioqKioqKioqKioqKioqKioqKioqKioqKioqKioqKgAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAH0AAAAAA==";
-
-    #[test]
-    fn decodes_real_ccip_dispatched_log_from_litesvm() {
-        let decoded = decode_program_log(CCIP_DISPATCHED_FIXTURE)
-            .expect("real anchor log must decode");
-        let DecodedEvent::CcipDispatched(e) = decoded else {
-            panic!("expected CcipDispatched, got {}", decoded.name());
-        };
-        assert_eq!(e.provider_id, [42u8; 32]);
-        assert_eq!(e.score, 500);
-        assert_eq!(e.dest_chain_selector, 123_456_789);
-        assert_eq!(e.receiver, vec![0xde, 0xad, 0xbe, 0xef]);
-        // payload schema: bytes32 providerId || 30 zero bytes || uint16 score (big-endian).
-        assert_eq!(e.payload.len(), 64);
-        assert_eq!(&e.payload[..32], &[42u8; 32]);
-        assert!(e.payload[32..62].iter().all(|b| *b == 0));
-        assert_eq!(u16::from_be_bytes([e.payload[62], e.payload[63]]), 500);
-        assert_eq!(e.extra_args, Vec::<u8>::new());
     }
 
     #[test]
@@ -672,22 +571,6 @@ mod tests {
         let log = synth_log(&DISC_REPUTATION_VOTE_BURNED, borsh::to_vec(&event).unwrap());
         let decoded = decode_program_log(&log).expect("decodes");
         assert!(matches!(decoded, DecodedEvent::ReputationVoteBurned(ref e) if e == &event));
-    }
-
-    #[test]
-    fn decodes_stake_dispatched() {
-        let event = StakeDispatched {
-            provider_id: [26u8; 32],
-            owner: PubkeyBytes([27u8; 32]),
-            amount: 100_000_000,
-            dest_chain_selector: 16_015_286_601_757_825_753,
-            receiver: vec![0xde, 0xad, 0xbe, 0xef],
-            payload: vec![1, 2, 3, 4, 5],
-            extra_args: vec![],
-        };
-        let log = synth_log(&DISC_STAKE_DISPATCHED, borsh::to_vec(&event).unwrap());
-        let decoded = decode_program_log(&log).expect("decodes");
-        assert!(matches!(decoded, DecodedEvent::StakeDispatched(ref e) if e == &event));
     }
 
     #[test]
@@ -839,16 +722,16 @@ mod tests {
             category_hash: [3u8; 32],
             meta_cid: [4u8; 32],
         };
-        let mirrored = ReputationMirrored { provider_id: [11u8; 32], score: 750 };
+        let score = ReputationScoreSet { provider_id: [11u8; 32], score: 750 };
         let logs = vec![
             "Program log: anything".to_string(),
             synth_log(&DISC_PROVIDER_REGISTERED, borsh::to_vec(&provider).unwrap()),
             "Program log: more noise".to_string(),
-            synth_log(&DISC_REPUTATION_MIRRORED, borsh::to_vec(&mirrored).unwrap()),
+            synth_log(&DISC_REPUTATION_SCORE_SET, borsh::to_vec(&score).unwrap()),
         ];
         let events = decode_logs(&logs);
         assert_eq!(events.len(), 2);
         assert_eq!(events[0].name(), "ProviderRegistered");
-        assert_eq!(events[1].name(), "ReputationMirrored");
+        assert_eq!(events[1].name(), "ReputationScoreSet");
     }
 }
