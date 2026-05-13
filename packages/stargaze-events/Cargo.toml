@@ -1,0 +1,12 @@
+[package]
+name = "stargaze-events"
+version = "0.0.0"
+description = "Anchor event decoder for StargazeAnchor logs."
+edition = "2021"
+license = "Apache-2.0"
+
+[dependencies]
+base64 = "0.22"
+borsh = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+bs58 = "0.5"

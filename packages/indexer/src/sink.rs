@@ -17,7 +17,7 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::PgPool;
 use tracing::info;
 
-use crate::events::DecodedEvent;
+use stargaze_events::DecodedEvent;
 
 /// Sink for decoded events emitted by the Yellowstone stream loop.
 ///
@@ -199,7 +199,7 @@ mod tests {
     use std::sync::Arc;
 
     use super::*;
-    use crate::events::{
+    use stargaze_events::{
         CcipDispatched, DecodedEvent, ProviderRegistered, PubkeyBytes, ReputationVoted,
     };
 

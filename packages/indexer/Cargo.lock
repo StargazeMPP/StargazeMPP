@@ -2103,22 +2103,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6ce2be8dc25455e1f91df71bfa12ad37d7af1092ae736f3a6cd0e37bc7810596"
 
 [[package]]
+name = "stargaze-events"
+version = "0.0.0"
+dependencies = [
+ "base64",
+ "borsh",
+ "bs58",
+ "sha2",
+]
+
+[[package]]
 name = "stargaze-indexer"
 version = "0.0.0"
 dependencies = [
  "anyhow",
  "async-trait",
- "base64",
- "borsh",
- "bs58",
  "chrono",
  "dotenvy",
  "futures",
  "hex",
  "serde",
  "serde_json",
- "sha2",
  "sqlx",
+ "stargaze-events",
  "tokio",
  "tracing",
  "tracing-subscriber",

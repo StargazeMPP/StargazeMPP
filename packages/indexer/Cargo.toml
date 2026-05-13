@@ -24,17 +24,11 @@ futures = "0.3"
 dotenvy = "0.15"
 yellowstone-grpc-client = "13.1"
 yellowstone-grpc-proto = "12.3"
-base64 = "0.22"
 hex = "0.4"
-borsh = { version = "1", features = ["derive"] }
-sha2 = "0.10"
-bs58 = "0.5"
 sqlx = { version = "0.8", features = ["postgres", "runtime-tokio-rustls", "chrono", "macros"] }
 chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
-
-[dev-dependencies]
-borsh = { version = "1", features = ["derive"] }
+stargaze-events = { path = "../stargaze-events" }
 
 [profile.release]
 lto = "fat"

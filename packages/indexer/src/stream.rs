@@ -12,7 +12,7 @@ use yellowstone_grpc_proto::geyser::{
 };
 
 use crate::config::Config;
-use crate::events::{decode_logs, DecodedEvent};
+use stargaze_events::{decode_logs, DecodedEvent};
 use crate::sink::{EventSink, PostgresSink, VecSink};
 
 /// Connects to a Yellowstone gRPC endpoint and subscribes to every
