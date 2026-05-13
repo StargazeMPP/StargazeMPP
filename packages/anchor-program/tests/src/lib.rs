@@ -47,6 +47,11 @@ pub const VAULT_VERIFIER_GEOFENCE_SO: &str = concat!(
     "/../target/deploy/vault_verifier_geofence.so"
 );
 
+pub const VAULT_VERIFIER_BUYER_KEY_SO: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../target/deploy/vault_verifier_buyer_key.so"
+);
+
 /// Spin up a `LiteSVM` with a single verifier program loaded at `program_id`.
 /// Verifier programs hold no state and need no clock sysvar — the helper is
 /// a minimal mirror of `setup_svm` for that simpler shape.

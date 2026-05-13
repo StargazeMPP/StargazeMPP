@@ -17,6 +17,7 @@ solana-ed25519-program = "2.2.3"
 stargaze_anchor = { path = "../programs/stargaze_anchor", features = ["no-entrypoint"] }
 vault_verifier_aggregate_sum = { path = "../programs/vault_verifier_aggregate_sum", features = ["no-entrypoint"] }
 vault_verifier_geofence = { path = "../programs/vault_verifier_geofence", features = ["no-entrypoint"] }
+vault_verifier_buyer_key = { path = "../programs/vault_verifier_buyer_key", features = ["no-entrypoint"] }
 base64 = "0.22"
 spl-token = { version = "7", features = ["no-entrypoint"] }
 spl-associated-token-account = { version = "6", features = ["no-entrypoint"] }

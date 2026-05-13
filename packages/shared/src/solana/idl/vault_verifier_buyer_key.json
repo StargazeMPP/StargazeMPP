@@ -1,0 +1,54 @@
+{
+  "address": "H2T3Amf7eTpeQQbzHkhTv5buCkfdc8bS41YwfgVkVsGn",
+  "metadata": {
+    "name": "vault_verifier_buyer_key",
+    "version": "0.0.0",
+    "spec": "0.1.0",
+    "description": "Placeholder verifier program for the BuyerKey vault tier. The circuit is not yet finalised; this stub always errors so providers can wire a real program id into VaultConfig today."
+  },
+  "instructions": [
+    {
+      "name": "verify",
+      "discriminator": [
+        133,
+        161,
+        141,
+        48,
+        120,
+        198,
+        88,
+        150
+      ],
+      "accounts": [],
+      "args": [
+        {
+          "name": "proof_bytes",
+          "type": {
+            "array": [
+              "u8",
+              256
+            ]
+          }
+        },
+        {
+          "name": "public_signals",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "CircuitNotFinalised",
+      "msg": "buyer-key circuit is not finalised; verifier ships as an always-rejecting stub"
+    }
+  ]
+}

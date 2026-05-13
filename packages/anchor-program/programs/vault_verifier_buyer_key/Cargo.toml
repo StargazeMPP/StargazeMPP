@@ -1,0 +1,21 @@
+[package]
+name = "vault_verifier_buyer_key"
+version = "0.0.0"
+description = "Placeholder verifier program for the BuyerKey vault tier. The circuit is not yet finalised; this stub always errors so providers can wire a real program id into VaultConfig today."
+edition = "2021"
+license = "Apache-2.0"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "vault_verifier_buyer_key"
+
+[features]
+default = []
+cpi = ["no-entrypoint"]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang = "0.31.1"

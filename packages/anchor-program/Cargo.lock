@@ -5379,6 +5379,7 @@ dependencies = [
  "stargaze-events",
  "stargaze_anchor",
  "vault_verifier_aggregate_sum",
+ "vault_verifier_buyer_key",
  "vault_verifier_geofence",
 ]
 
@@ -5788,6 +5789,13 @@ version = "0.0.0"
 dependencies = [
  "anchor-lang",
  "vault-verifier-core",
+]
+
+[[package]]
+name = "vault_verifier_buyer_key"
+version = "0.0.0"
+dependencies = [
+ "anchor-lang",
 ]
 
 [[package]]
