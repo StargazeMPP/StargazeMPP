@@ -183,6 +183,15 @@ npm test --workspace @stargazempp/provider-sdk      # Provider SDK
 
 **Settlement.** USDC on Solana via x402; fiat on-ramps through Stripe / Visa / Lightning fund the agent's Solana wallet.
 
+## Documentation
+
+| Doc | Topic |
+|---|---|
+| [`SECURITY.md`](SECURITY.md) | On-chain trust model + invariants per surface (escrow, staking, vault registry, vault proof, Ed25519 / Groth16 crypto). Anchor companion to the Trail of Bits engagement. |
+| [`docs/vault-verifier-deployment.md`](docs/vault-verifier-deployment.md) | Build + deploy + register flow for the three Groth16 verifier programs; per-provider `configure_vault` registration; SDK example. |
+| [`docs/vault-ceremony.md`](docs/vault-ceremony.md) | Trusted-setup ceremony plan (Phase 1 reuse, per-circuit Phase 2 contributor rotation, attestation format). |
+| [`packages/anchor-program/BENCH.md`](packages/anchor-program/BENCH.md) | Recorded compute-unit numbers for `settle` and `submit_vault_proof`. |
+
 ## Roadmap
 
 | Phase | Window | Headline |
@@ -195,10 +204,11 @@ npm test --workspace @stargazempp/provider-sdk      # Provider SDK
 
 ## Security
 
+- **Invariants.** Per-surface invariants for escrow, staking, vault registry, vault proof, and the Ed25519 / Groth16 cryptographic boundaries are enumerated in [`SECURITY.md`](SECURITY.md).
 - **Audits.** Trail of Bits is engaged for the Anchor program and Groth16 verifier programs prior to mainnet. Certora is engaged for formal verification of escrow + voucher-settlement invariants.
 - **Bug bounty.** Listed on Immunefi from launch — $200K critical (escrow drain), $50K high.
-- **Disclosure.** Send vulnerability reports to `security@stargazempp.com` (PGP key in [`SECURITY.md`](SECURITY.md)). Coordinated disclosure within 90 days unless an immediate fix would compromise users.
-- **Upgrade authority.** The Anchor program upgrade authority sits behind a 4-of-7 Solana multisig with a 14-day timelock on every upgrade.
+- **Disclosure.** Report vulnerabilities privately to the operator; coordinated disclosure within 90 days unless an immediate fix would compromise users. Do not file public GitHub issues for security bugs.
+- **Upgrade authority.** The Anchor program upgrade authority sits behind a 4-of-7 Solana multisig with a 14-day timelock on every upgrade. Per-circuit verifier programs are intended to be marked immutable before mainnet activation — see [`docs/vault-verifier-deployment.md`](docs/vault-verifier-deployment.md).
 
 ## Contributing
 
