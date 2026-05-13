@@ -23,12 +23,12 @@ Outputs to `build/`: `.r1cs` constraint system, `.wasm` witness generator, `.sym
 
 ## Trusted setup
 
-Phase 2 ceremony per circuit, with at least five independent contributors and a public randomness beacon for the final contribution. Final `.zkey` files and the corresponding Solidity verifiers register with [`PrivacyVaultRegistry`](../contracts-evm/src/PrivacyVaultRegistry.sol).
+Phase 2 ceremony per circuit, with at least five independent contributors and a public randomness beacon for the final contribution. Final `.zkey` files register against Solana verifier programs via `configure_vault` on the StargazeMPP Anchor program (see [`stargaze_anchor`](../anchor-program/programs/stargaze_anchor/src/lib.rs)).
 
 For local development:
 
 ```bash
-npm run all:aggregate-dev   # Compile + dev-Phase-2 + Solidity verifier for aggregate_sum.
+npm run all:aggregate-dev   # Compile + dev-Phase-2 for aggregate_sum.
 npm run all:geofence-dev    # Same for geofence.
 ```
 

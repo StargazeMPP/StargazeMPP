@@ -2,7 +2,7 @@
   "name": "@stargazempp/shared",
   "version": "0.0.0",
   "private": false,
-  "description": "Shared types, EIP-712 schemas, ABIs, IDL, and verifier interfaces — the seam between contracts and backend.",
+  "description": "Shared types, voucher schemas, Anchor IDL, and verifier interfaces — the seam between the Anchor program and backend.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -18,10 +18,6 @@
     "./vault": {
       "types": "./dist/vault/index.d.ts",
       "import": "./dist/vault/index.js"
-    },
-    "./evm": {
-      "types": "./dist/evm/index.d.ts",
-      "import": "./dist/evm/index.js"
     },
     "./solana": {
       "types": "./dist/solana/index.d.ts",

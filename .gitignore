@@ -35,13 +35,6 @@ packages/anchor-program/target/
 packages/anchor-program/test-ledger/
 packages/anchor-program/.anchor/
 
-# Foundry / Hardhat
-packages/contracts-evm/cache/
-packages/contracts-evm/out/
-packages/contracts-evm/artifacts/
-packages/contracts-evm/typechain-types/
-packages/contracts-evm/broadcast/
-
 # ZK circuit artifacts (large; pin via separate storage)
 packages/vault-circuits/build/
 packages/vault-circuits/*.zkey
