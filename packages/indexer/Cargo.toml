@@ -13,6 +13,10 @@ path = "src/lib.rs"
 name = "stargaze-indexer"
 path = "src/main.rs"
 
+[[bin]]
+name = "stargaze-audit-vault-proofs"
+path = "src/bin/audit_vault_proofs.rs"
+
 [dependencies]
 anyhow = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
