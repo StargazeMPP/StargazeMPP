@@ -1,25 +1,14 @@
-import type { SignedVoucher } from './voucher.js';
-import type { PaymentRail } from './session.js';
+import type { SignedVoucher, VerifiedVoucher } from './voucher.js';
 
 export interface DepositProof {
   txHash: string;
-  rail: PaymentRail;
 }
 
 export interface VerifiedDeposit {
   txHash: string;
-  rail: PaymentRail;
   agentWallet: string;
-  /** Smallest unit (wei on Tempo PathUSD, lamports on Solana USDC). */
+  /** Smallest unit (USDC base units, 6 decimals). */
   amount: bigint;
-}
-
-export interface VerifiedVoucher {
-  sessionId: string;
-  agentWallet: string;
-  provider: string;
-  cumulativeAmount: bigint;
-  nonce: bigint;
 }
 
 /**
@@ -33,8 +22,8 @@ export interface VerifiedVoucher {
  */
 export interface MppVerifier {
   /**
-   * Verify an on-chain deposit. Hits the appropriate RPC. Used once per
-   * session at `session.open` — not on the hot path.
+   * Verify an on-chain Solana deposit. Hits the configured Solana RPC. Used
+   * once per session at `session.open` — not on the hot path.
    *
    * Throws if the tx doesn't exist, is unconfirmed, transfers the wrong
    * asset, sends less than `minAmount`, or pays a different recipient.
@@ -46,13 +35,13 @@ export interface MppVerifier {
   ): Promise<VerifiedDeposit>;
 
   /**
-   * Recover the agent wallet from a signed voucher via EIP-712 `ecrecover`.
-   * Pure crypto — no RPC, no I/O. Sub-10ms budget on the hot path.
+   * Recover the agent wallet from a Solana voucher by verifying the Ed25519
+   * signature over the 133-byte voucher message. Pure crypto — no RPC, no
+   * I/O. Sub-10ms budget on the hot path.
    *
-   * Async only because `viem`'s `recoverTypedDataAddress` is async by
-   * convention; resolves synchronously in practice.
+   * Async only by convention; resolves synchronously in practice.
    *
-   * Throws on signature recovery failure or domain / type mismatch.
+   * Throws on signature recovery failure or domain mismatch.
    */
   verifyVoucher(voucher: SignedVoucher): Promise<VerifiedVoucher>;
 }

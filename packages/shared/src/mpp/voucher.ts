@@ -74,3 +74,20 @@ export function buildVoucherMessage(args: VoucherMessage): Uint8Array {
   out.set(u64LeBytes(args.nonce), 125);
   return out;
 }
+
+export interface SignedVoucher {
+  /** The exact 133-byte message that was signed. Includes the domain prefix. */
+  message: Uint8Array;
+  /** 64-byte Ed25519 signature over `message`. */
+  signature: Uint8Array;
+  /** The agent's 32-byte Ed25519 public key (Solana wallet pubkey). */
+  agentWallet: Uint8Array;
+}
+
+export interface VerifiedVoucher {
+  sessionId: Uint8Array; // 32 bytes
+  agentWallet: Uint8Array; // 32 bytes
+  providerId: Uint8Array; // 32 bytes
+  cumulativeAmount: bigint;
+  nonce: bigint;
+}

@@ -1,16 +1,16 @@
-export type PaymentRail = 'tempo' | 'solana';
+export type PaymentRail = 'solana';
 
-export type PaymentMethod = 'tempo' | 'solana' | 'stripe' | 'visa' | 'lightning';
+export type PaymentMethod = 'solana' | 'stripe' | 'visa' | 'lightning';
 
 export type SessionStatus = 'open' | 'settled' | 'expired';
 
 /** Claims encoded into the JWT returned by `session.open` and carried on every subsequent request. */
 export interface SessionTokenClaims {
-  /** The agent wallet that signed the deposit. Hex address on Tempo or base58 pubkey on Solana. */
+  /** Agent wallet — base58 Solana pubkey. */
   agentWallet: string;
   /** Stable session identifier. */
   sessionId: string;
-  /** Maximum spend across the whole session, as a decimal string of the smallest unit (wei / lamports). */
+  /** Maximum spend across the whole session, as a decimal string of USDC base units (6 decimals). */
   spendingLimit: string;
   /** Unix seconds at which the session token expires regardless of remaining balance. */
   expiry: number;
