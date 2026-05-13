@@ -1,0 +1,40 @@
+{
+  "name": "@stargazempp/reputation-oracle",
+  "version": "0.0.0",
+  "private": false,
+  "description": "Thin reference reputation oracle: aggregates ReputationVoted events from the indexer's Postgres projection into per-provider composite scores in [0, 1000], then publishes them on-chain via StargazeRegistry.setReputationScore.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "src"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@stargazempp/shared": "*",
+    "bs58": "^6.0.0",
+    "pg": "^8.11.0",
+    "viem": "^2.21.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/pg": "^8.11.0",
+    "typescript": "^5.5.0",
+    "vitest": "^4.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
