@@ -8,10 +8,12 @@ skip-lint = false
 [programs.localnet]
 stargaze_anchor = "m6P7kwvXoET9n5B8DFGwwLEozXdv6jBJPdbMiW1TH1R"
 vault_verifier_aggregate_sum = "CTC7ehb1sYj7A5EsAd3E6viYdo5bxydzSpccDENbkUmP"
+vault_verifier_geofence = "9d5rDusSqBH44dnJ4CQnR885xUoDq9NevgDHcsjYBaoD"
 
 [programs.devnet]
 stargaze_anchor = "m6P7kwvXoET9n5B8DFGwwLEozXdv6jBJPdbMiW1TH1R"
 vault_verifier_aggregate_sum = "CTC7ehb1sYj7A5EsAd3E6viYdo5bxydzSpccDENbkUmP"
+vault_verifier_geofence = "9d5rDusSqBH44dnJ4CQnR885xUoDq9NevgDHcsjYBaoD"
 
 [registry]
 url = "https://api.apr.dev"
@@ -24,4 +26,4 @@ wallet = "~/.config/solana/id.json"
 test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"
 
 [workspace]
-members = ["programs/stargaze_anchor", "programs/vault_verifier_aggregate_sum"]
+members = ["programs/stargaze_anchor", "programs/vault_verifier_aggregate_sum", "programs/vault_verifier_geofence"]

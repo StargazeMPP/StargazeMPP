@@ -1,0 +1,65 @@
+{
+  "address": "9d5rDusSqBH44dnJ4CQnR885xUoDq9NevgDHcsjYBaoD",
+  "metadata": {
+    "name": "vault_verifier_geofence",
+    "version": "0.0.0",
+    "spec": "0.1.0",
+    "description": "On-chain Groth16 verifier for the geofence vault circuit (N=32, 4 public signals)."
+  },
+  "instructions": [
+    {
+      "name": "verify",
+      "docs": [
+        "Verify a Groth16 proof for the geofence circuit (N=32 bit-width, 4",
+        "public signals — minLat, maxLat, minLon, maxLon).",
+        "On success: ix succeeds with no state change. Verifier programs are pure",
+        "dispatchers; the calling program records the proof receipt."
+      ],
+      "discriminator": [
+        133,
+        161,
+        141,
+        48,
+        120,
+        198,
+        88,
+        150
+      ],
+      "accounts": [],
+      "args": [
+        {
+          "name": "proof_bytes",
+          "type": {
+            "array": [
+              "u8",
+              256
+            ]
+          }
+        },
+        {
+          "name": "public_signals",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "WrongSignalCount",
+      "msg": "public signals length does not match circuit shape"
+    },
+    {
+      "code": 6001,
+      "name": "ProofInvalid",
+      "msg": "groth16 proof did not verify"
+    }
+  ]
+}
