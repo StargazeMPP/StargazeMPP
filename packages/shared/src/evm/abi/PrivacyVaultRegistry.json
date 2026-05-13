@@ -5,6 +5,11 @@
       "type": "constructor",
       "inputs": [
         {
+          "name": "stargazeRegistryAddress",
+          "type": "address",
+          "internalType": "address"
+        },
+        {
           "name": "admin",
           "type": "address",
           "internalType": "address"
@@ -297,6 +302,19 @@
     },
     {
       "type": "function",
+      "name": "stargazeRegistry",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "contract IStargazeRegistry"
+        }
+      ],
+      "stateMutability": "view"
+    },
+    {
+      "type": "function",
       "name": "supportsInterface",
       "inputs": [
         {
@@ -505,10 +523,20 @@
     },
     {
       "type": "error",
+      "name": "NotProviderOwner",
+      "inputs": []
+    },
+    {
+      "type": "error",
+      "name": "NotRegistered",
+      "inputs": []
+    },
+    {
+      "type": "error",
       "name": "UnknownTier",
       "inputs": []
     }
   ],
-  "bytecodeHash": "d57fb1297978b8cc5975cde7a7d645655738de337f7a7cd83fd91690e4259882",
-  "deployedBytecodeHash": "884d6ba9caef6b667d26011be51086beb94d8b268682894113bc332f68f5d06f"
+  "bytecodeHash": "87b2d891d9b0717c0424d90916f3e333f700c1c225befb0b54b4f77fc14c3cb1",
+  "deployedBytecodeHash": "229ab16bd73e7c7b001e5d5def4176459bcc363c8e5e16d48fe04b8842780411"
 }

@@ -3,9 +3,15 @@ pragma solidity 0.8.27;
 
 import {Test} from "forge-std/Test.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
+import {GAZEToken} from "../src/GAZEToken.sol";
+import {BurnController} from "../src/BurnController.sol";
+import {StargazeRegistry} from "../src/StargazeRegistry.sol";
 import {PrivacyVaultRegistry} from "../src/PrivacyVaultRegistry.sol";
 
 contract PrivacyVaultRegistryTest is Test {
+    GAZEToken internal gaze;
+    BurnController internal bc;
+    StargazeRegistry internal stargaze;
     PrivacyVaultRegistry internal registry;
 
     address internal admin = address(0xA11CE);
@@ -17,8 +23,12 @@ contract PrivacyVaultRegistryTest is Test {
     address internal auditorB = address(0xAD2);
 
     bytes32 internal constant PROVIDER_ID = keccak256("mpp32");
+    bytes32 internal constant CATEGORY = keccak256("search");
+    bytes32 internal constant META_CID = bytes32(uint256(0xCAFE));
     bytes32 internal constant ARWEAVE_CID = keccak256("ar://vk-and-circuit");
     bytes32 internal constant ROTATION_CID = keccak256("ar://rotation-policy");
+
+    uint256 internal constant INITIAL_SUPPLY = 1_000_000e18;
 
     event VaultConfigured(
         bytes32 indexed providerId,
@@ -31,7 +41,23 @@ contract PrivacyVaultRegistryTest is Test {
     event VaultDeactivated(bytes32 indexed providerId);
 
     function setUp() public {
-        registry = new PrivacyVaultRegistry(admin);
+        gaze = new GAZEToken(INITIAL_SUPPLY, admin);
+        bc = new BurnController(address(gaze), admin);
+        stargaze = new StargazeRegistry(address(gaze), address(bc), admin);
+        registry = new PrivacyVaultRegistry(address(stargaze), admin);
+
+        vm.startPrank(admin);
+        gaze.setBurnController(address(bc));
+        gaze.transfer(provider, 10_000e18);
+        vm.stopPrank();
+
+        // Register the provider in StargazeRegistry so PrivacyVaultRegistry
+        // can resolve ownership.
+        uint256 stake = stargaze.MIN_STAKE();
+        vm.prank(provider);
+        gaze.approve(address(stargaze), stake);
+        vm.prank(provider);
+        stargaze.register(PROVIDER_ID, CATEGORY, META_CID, stake);
     }
 
     function _readConfig(bytes32 id)
@@ -99,6 +125,30 @@ contract PrivacyVaultRegistryTest is Test {
         registry.configure(PROVIDER_ID, bogus, verifierA, ARWEAVE_CID);
     }
 
+    function test_Configure_RevertsOnAttacker() public {
+        bytes32 tier = registry.TIER_OPEN();
+
+        vm.prank(provider);
+        registry.configure(PROVIDER_ID, tier, verifierA, ARWEAVE_CID);
+
+        vm.prank(attacker);
+        vm.expectRevert(PrivacyVaultRegistry.NotProviderOwner.selector);
+        registry.configure(PROVIDER_ID, tier, verifierB, ARWEAVE_CID);
+
+        (, address storedVerifier,,,, bool active) = _readConfig(PROVIDER_ID);
+        assertEq(storedVerifier, verifierA, "config unchanged");
+        assertTrue(active);
+    }
+
+    function test_Configure_RevertsWhenProviderNotRegistered() public {
+        bytes32 unknownId = keccak256("ghost");
+        bytes32 tier = registry.TIER_OPEN();
+
+        vm.prank(provider);
+        vm.expectRevert(PrivacyVaultRegistry.NotRegistered.selector);
+        registry.configure(unknownId, tier, verifierA, ARWEAVE_CID);
+    }
+
     function test_Configure_PreservesAuditorAndRotationCid() public {
         bytes32 openTier = registry.TIER_OPEN();
         bytes32 confidentialTier = registry.TIER_CONFIDENTIAL();
@@ -146,11 +196,24 @@ contract PrivacyVaultRegistryTest is Test {
         assertEq(storedAuditor, auditorA);
     }
 
+    function test_SetAuditorKey_RevertsOnAttacker() public {
+        bytes32 tier = registry.TIER_CONFIDENTIAL();
+        vm.prank(provider);
+        registry.configure(PROVIDER_ID, tier, verifierA, ARWEAVE_CID);
+
+        vm.prank(attacker);
+        vm.expectRevert(PrivacyVaultRegistry.NotProviderOwner.selector);
+        registry.setAuditorKey(PROVIDER_ID, auditorB);
+
+        (,,,, address storedAuditor,) = _readConfig(PROVIDER_ID);
+        assertEq(storedAuditor, address(0), "auditor unchanged");
+    }
+
     function test_SetAuditorKey_RevertsWhenNotActive() public {
-        bytes32 freshId = keccak256("never-configured");
+        // Provider is registered but vault never configured → NotConfigured.
         vm.prank(provider);
         vm.expectRevert(PrivacyVaultRegistry.NotConfigured.selector);
-        registry.setAuditorKey(freshId, auditorA);
+        registry.setAuditorKey(PROVIDER_ID, auditorA);
     }
 
     function test_SetAuditorKey_OverwriteEmitsPrevious() public {
@@ -184,11 +247,23 @@ contract PrivacyVaultRegistryTest is Test {
         assertEq(storedRotation, ROTATION_CID);
     }
 
+    function test_SetBuyerKeyRotationCid_RevertsOnAttacker() public {
+        bytes32 tier = registry.TIER_BUYER_KEY();
+        vm.prank(provider);
+        registry.configure(PROVIDER_ID, tier, verifierA, ARWEAVE_CID);
+
+        vm.prank(attacker);
+        vm.expectRevert(PrivacyVaultRegistry.NotProviderOwner.selector);
+        registry.setBuyerKeyRotationCid(PROVIDER_ID, ROTATION_CID);
+
+        (,,, bytes32 storedRotation,,) = _readConfig(PROVIDER_ID);
+        assertEq(storedRotation, bytes32(0), "rotation cid unchanged");
+    }
+
     function test_SetBuyerKeyRotationCid_RevertsWhenNotActive() public {
-        bytes32 freshId = keccak256("also-never-configured");
         vm.prank(provider);
         vm.expectRevert(PrivacyVaultRegistry.NotConfigured.selector);
-        registry.setBuyerKeyRotationCid(freshId, ROTATION_CID);
+        registry.setBuyerKeyRotationCid(PROVIDER_ID, ROTATION_CID);
     }
 
     function test_Deactivate_HappyPath() public {
@@ -229,22 +304,6 @@ contract PrivacyVaultRegistryTest is Test {
         vm.prank(admin);
         vm.expectRevert(PrivacyVaultRegistry.NotConfigured.selector);
         registry.deactivate(PROVIDER_ID);
-    }
-
-    function test_KnownLackOfAuth_AttackerCanReconfigure() public {
-        bytes32 tier = registry.TIER_OPEN();
-
-        // Legitimate provider configures their vault.
-        vm.prank(provider);
-        registry.configure(PROVIDER_ID, tier, verifierA, ARWEAVE_CID);
-
-        // FIXME: configure() lacks owner / role check — attacker can hijack a provider's vault config.
-        vm.prank(attacker);
-        registry.configure(PROVIDER_ID, tier, verifierB, ARWEAVE_CID);
-
-        (, address storedVerifier,,,, bool active) = _readConfig(PROVIDER_ID);
-        assertEq(storedVerifier, verifierB);
-        assertTrue(active);
     }
 
     function testFuzz_RoundtripsArbitraryCid(bytes32 cid) public {

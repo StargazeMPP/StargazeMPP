@@ -14,11 +14,12 @@ import {StargazeCcipReceiver} from "../src/StargazeCcipReceiver.sol";
 ///   2. BurnController (depends GAZEToken)
 ///   3. StargazeEscrow
 ///   4. StargazeRegistry (depends GAZEToken + BurnController)
-///   5. PrivacyVaultRegistry
+///   5. PrivacyVaultRegistry (depends StargazeRegistry)
 ///   6. StargazeCcipReceiver (depends StargazeRegistry)
 /// Day-one admin is the 4-of-7 Safe multisig — pass its address via env.
-/// Post-deploy, the admin must grant the CCIP receiver ORACLE_ROLE on
-/// StargazeRegistry so reputation snapshots can be mirrored cross-chain.
+/// Post-deploy, the admin must grant:
+///   - the CCIP receiver ORACLE_ROLE on StargazeRegistry (cross-chain mirror)
+///   - the StargazeRegistry REGISTRY_ROLE on BurnController (reputation vote burn)
 contract Deploy is Script {
     function run() external {
         uint256 deployerKey = vm.envUint("DEPLOYER_PRIVATE_KEY");
@@ -32,7 +33,7 @@ contract Deploy is Script {
         BurnController burnController = new BurnController(address(gaze), admin);
         StargazeEscrow escrow = new StargazeEscrow(pathUsd, admin);
         StargazeRegistry registry = new StargazeRegistry(address(gaze), address(burnController), admin);
-        PrivacyVaultRegistry vaultRegistry = new PrivacyVaultRegistry(admin);
+        PrivacyVaultRegistry vaultRegistry = new PrivacyVaultRegistry(address(registry), admin);
         StargazeCcipReceiver ccipReceiver = new StargazeCcipReceiver(address(registry), admin);
 
         vm.stopBroadcast();

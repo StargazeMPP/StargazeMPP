@@ -3,6 +3,20 @@ pragma solidity 0.8.27;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 
+interface IStargazeRegistry {
+    function providers(bytes32 providerId)
+        external
+        view
+        returns (
+            address owner,
+            uint256 stake,
+            uint256 reputationScore,
+            bool registered,
+            bytes32 categoryHash,
+            bytes32 metaCid
+        );
+}
+
 /// @title PrivacyVaultRegistry
 /// @notice Tracks per-provider Groth16 verifier contract addresses,
 ///         buyer-key rotation config, and (optional) auditor key for
@@ -13,6 +27,8 @@ contract PrivacyVaultRegistry is AccessControl {
     bytes32 public constant TIER_ZK_AGGREGATE = keccak256("zk-aggregate");
     bytes32 public constant TIER_CONFIDENTIAL = keccak256("confidential");
     bytes32 public constant TIER_BUYER_KEY = keccak256("buyer-key");
+
+    IStargazeRegistry public immutable stargazeRegistry;
 
     struct VaultConfig {
         bytes32 tier;
@@ -37,9 +53,19 @@ contract PrivacyVaultRegistry is AccessControl {
 
     error UnknownTier();
     error NotConfigured();
+    error NotRegistered();
+    error NotProviderOwner();
 
-    constructor(address admin) {
+    constructor(address stargazeRegistryAddress, address admin) {
+        stargazeRegistry = IStargazeRegistry(stargazeRegistryAddress);
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
+    }
+
+    modifier onlyProviderOwner(bytes32 providerId) {
+        (address owner,,, bool registered,,) = stargazeRegistry.providers(providerId);
+        if (!registered) revert NotRegistered();
+        if (msg.sender != owner) revert NotProviderOwner();
+        _;
     }
 
     function configure(
@@ -47,7 +73,7 @@ contract PrivacyVaultRegistry is AccessControl {
         bytes32 tier,
         address onChainVerifier,
         bytes32 arweaveCid
-    ) external {
+    ) external onlyProviderOwner(providerId) {
         if (
             tier != TIER_OPEN
                 && tier != TIER_ZK_AGGREGATE
@@ -65,14 +91,14 @@ contract PrivacyVaultRegistry is AccessControl {
         emit VaultConfigured(providerId, tier, onChainVerifier, arweaveCid);
     }
 
-    function setAuditorKey(bytes32 providerId, address auditor) external {
+    function setAuditorKey(bytes32 providerId, address auditor) external onlyProviderOwner(providerId) {
         VaultConfig storage c = configOf[providerId];
         if (!c.active) revert NotConfigured();
         emit AuditorKeySet(providerId, c.auditorKey, auditor);
         c.auditorKey = auditor;
     }
 
-    function setBuyerKeyRotationCid(bytes32 providerId, bytes32 cid) external {
+    function setBuyerKeyRotationCid(bytes32 providerId, bytes32 cid) external onlyProviderOwner(providerId) {
         VaultConfig storage c = configOf[providerId];
         if (!c.active) revert NotConfigured();
         c.buyerKeyRotationCid = cid;

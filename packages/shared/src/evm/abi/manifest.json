@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-13T07:19:03.115Z",
+  "generatedAt": "2026-05-13T07:21:52.928Z",
   "contracts": {
     "GAZEToken": {
       "file": "./GAZEToken.json",
@@ -19,7 +19,7 @@
     },
     "PrivacyVaultRegistry": {
       "file": "./PrivacyVaultRegistry.json",
-      "bytecodeHash": "d57fb1297978b8cc5975cde7a7d645655738de337f7a7cd83fd91690e4259882"
+      "bytecodeHash": "87b2d891d9b0717c0424d90916f3e333f700c1c225befb0b54b4f77fc14c3cb1"
     },
     "StargazeCcipReceiver": {
       "file": "./StargazeCcipReceiver.json",
