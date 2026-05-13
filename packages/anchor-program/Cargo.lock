@@ -5378,6 +5378,7 @@ dependencies = [
  "spl-token",
  "stargaze-events",
  "stargaze_anchor",
+ "vault_verifier_aggregate_sum",
 ]
 
 [[package]]
@@ -5778,6 +5779,14 @@ dependencies = [
  "groth16-solana",
  "solana-program",
  "thiserror 2.0.18",
+]
+
+[[package]]
+name = "vault_verifier_aggregate_sum"
+version = "0.0.0"
+dependencies = [
+ "anchor-lang",
+ "vault-verifier-core",
 ]
 
 [[package]]

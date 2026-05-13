@@ -37,6 +37,29 @@ pub const PROGRAM_SO: &str = concat!(
     "/../target/deploy/stargaze_anchor.so"
 );
 
+pub const VAULT_VERIFIER_AGGREGATE_SUM_SO: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../target/deploy/vault_verifier_aggregate_sum.so"
+);
+
+pub const VAULT_VERIFIER_GEOFENCE_SO: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../target/deploy/vault_verifier_geofence.so"
+);
+
+/// Spin up a `LiteSVM` with a single verifier program loaded at `program_id`.
+/// Verifier programs hold no state and need no clock sysvar — the helper is
+/// a minimal mirror of `setup_svm` for that simpler shape.
+pub fn setup_verifier_svm(program_id: Pubkey, so_path: &str) -> (LiteSVM, Keypair) {
+    let mut svm = LiteSVM::new();
+    svm.add_program_from_file(program_id, so_path)
+        .expect("load verifier program");
+    let payer = Keypair::new();
+    svm.airdrop(&payer.pubkey(), 10_000_000_000)
+        .expect("airdrop payer");
+    (svm, payer)
+}
+
 /// Create a fresh `LiteSVM`, load the program at its declared id, and return
 /// a funded payer keypair. Advances the clock sysvar so `Clock::get()`
 /// produces a non-zero `unix_timestamp` inside the program.

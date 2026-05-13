@@ -1,0 +1,64 @@
+{
+  "address": "CTC7ehb1sYj7A5EsAd3E6viYdo5bxydzSpccDENbkUmP",
+  "metadata": {
+    "name": "vault_verifier_aggregate_sum",
+    "version": "0.0.0",
+    "spec": "0.1.0",
+    "description": "On-chain Groth16 verifier for the aggregate_sum vault circuit (N=8)."
+  },
+  "instructions": [
+    {
+      "name": "verify",
+      "docs": [
+        "Verify a Groth16 proof for the aggregate_sum circuit (N=8, 1 public signal).",
+        "On success: ix succeeds with no state change. Verifier programs are pure",
+        "dispatchers; the calling program records the proof receipt."
+      ],
+      "discriminator": [
+        133,
+        161,
+        141,
+        48,
+        120,
+        198,
+        88,
+        150
+      ],
+      "accounts": [],
+      "args": [
+        {
+          "name": "proof_bytes",
+          "type": {
+            "array": [
+              "u8",
+              256
+            ]
+          }
+        },
+        {
+          "name": "public_signals",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "errors": [
+    {
+      "code": 6000,
+      "name": "WrongSignalCount",
+      "msg": "public signals length does not match circuit shape"
+    },
+    {
+      "code": 6001,
+      "name": "ProofInvalid",
+      "msg": "groth16 proof did not verify"
+    }
+  ]
+}
