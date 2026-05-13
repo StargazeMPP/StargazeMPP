@@ -5,6 +5,10 @@ description = "Sub-50ms-lag Solana indexer for StargazeAnchor events and x402 US
 edition = "2021"
 license = "Apache-2.0"
 
+[lib]
+name = "stargaze_indexer"
+path = "src/lib.rs"
+
 [[bin]]
 name = "stargaze-indexer"
 path = "src/main.rs"
@@ -22,6 +26,12 @@ yellowstone-grpc-client = "13.1"
 yellowstone-grpc-proto = "12.3"
 base64 = "0.22"
 hex = "0.4"
+borsh = { version = "1", features = ["derive"] }
+sha2 = "0.10"
+bs58 = "0.5"
+
+[dev-dependencies]
+borsh = { version = "1", features = ["derive"] }
 
 [profile.release]
 lto = "fat"
