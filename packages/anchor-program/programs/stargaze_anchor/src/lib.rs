@@ -174,6 +174,210 @@ pub const ROUTING_FEE_BPS: u16 = 200;
 ///     protection. Reject `min_gaze_out == 0` or accept it and document?
 ///     Recommend rejecting; the admin should always specify a floor.
 
+/// Pull-based Merkle staker-reward distribution. Three planned admin /
+/// claimant instructions sit on top of the routing-fee accumulation
+/// already implemented by `process_routing_fee_burn` (which forwards
+/// 50% of each tranche into `staker_reward_pool_ata`). The reward pool
+/// is drained by stakers claiming against a weekly Merkle root that an
+/// off-chain settler computes from on-chain stake snapshots.
+///
+/// **Not implemented** — deferred pending operator confirmation of:
+/// epoch identifier semantics, Merkle leaf encoding, sweep grace
+/// period, and which off-chain service mints the root. BLOCKERS.md's
+/// "Staker reward distribution model" line is the operator-facing tie.
+///
+/// Planned signatures:
+///
+/// ```ignore
+/// pub fn commit_staker_rewards_root(
+///     ctx: Context<CommitStakerRewardsRoot>,
+///     epoch: u64,           // caller-provided monotonic id; admin invariant
+///     merkle_root: [u8; 32],
+///     budget: u64,          // base-unit $GAZE reserved against staker_reward_pool_ata
+/// ) -> Result<()>
+///
+/// pub fn claim_staker_rewards(
+///     ctx: Context<ClaimStakerRewards>,
+///     epoch: u64,
+///     amount: u64,
+///     merkle_proof: Vec<[u8; 32]>,
+/// ) -> Result<()>
+///
+/// pub fn sweep_staker_rewards_epoch(
+///     ctx: Context<SweepStakerRewardsEpoch>,
+///     epoch: u64,
+/// ) -> Result<()>
+/// ```
+///
+/// `commit_staker_rewards_root` handler:
+///   1. Admin gate via `staking_config.authority` (mirrors
+///      `process_routing_fee_burn`).
+///   2. Initialize a `StakerRewardEpoch` PDA at
+///      `[b"staker_reward_epoch", &epoch.to_le_bytes()]`. The `init`
+///      constraint makes re-commit for the same `epoch` fail
+///      automatically (no admin foot-gun).
+///   3. Require `budget <= staker_reward_pool_ata.amount` after
+///      summing the `remaining_budget` of every still-open
+///      `StakerRewardEpoch`. (The on-chain check is "this epoch's
+///      budget alone fits in the pool"; the cross-epoch invariant is
+///      an admin-side responsibility, encoded as a `///` comment.)
+///   4. Persist `epoch`, `merkle_root`, `budget`,
+///      `remaining_budget = budget`, `committed_at = Clock::get()?.unix_timestamp`,
+///      `swept = false`.
+///   5. Emit `StakerRewardEpochCommitted { epoch, merkle_root, budget }`.
+///   6. **No token movement here.** The pool's ATA still holds the
+///      funds; the per-epoch PDA only carves out an accounting
+///      reservation. Claims do the actual `token::transfer`.
+///
+/// `claim_staker_rewards` handler:
+///   1. Permissionless — anyone with a valid Merkle proof against the
+///      committed root can call (the `staker` signer must match the
+///      proof leaf, so adversaries can't claim on someone else's
+///      behalf).
+///   2. Load `StakerRewardEpoch` for `epoch`; require `!swept`.
+///   3. Compute `leaf = sha256(staker_pubkey || amount.to_le_bytes())`
+///      (32 + 8 = 40 input bytes; `solana_program::keccak::hashv` is
+///      cheaper but only worth picking if the off-chain settler is
+///      already keccak-native — operator to confirm). Verify
+///      `merkle_proof` against `epoch.merkle_root` via the standard
+///      pair-hash walk used by every Solana Merkle distributor
+///      (sorted-pair to avoid leaf-order replay).
+///   4. Initialize a `StakerRewardClaim` PDA at
+///      `[b"staker_reward_claim", &epoch.to_le_bytes(), staker.key().as_ref()]`.
+///      The `init` constraint is the double-claim guard — second call
+///      fails on account-already-in-use.
+///   5. `epoch.remaining_budget = epoch.remaining_budget.checked_sub(amount)
+///      .ok_or(StargazeAnchorError::StakerRewardBudgetExceeded)?` (new
+///      error variant).
+///   6. CPI: `token::transfer` from `staker_reward_pool_ata` →
+///      `staker_ata`, signed by the existing `staker_reward_pool`
+///      PDA seeds (already used by the pool ATA's
+///      `associated_token::authority`).
+///   7. Emit `StakerRewardClaimed { epoch, staker, amount }`.
+///
+/// `sweep_staker_rewards_epoch` handler:
+///   1. Admin gate.
+///   2. Require `epoch.committed_at + EPOCH_SWEEP_GRACE_SECS <=
+///      Clock::get()?.unix_timestamp` (new `#[constant]`; recommend
+///      90 days to give stakers time to claim).
+///   3. Set `epoch.swept = true`, zero `epoch.remaining_budget`. No
+///      token movement — the unclaimed slice automatically re-enters
+///      the pool's claimable surface for the next commit.
+///   4. Emit `StakerRewardEpochSwept { epoch, leftover }`.
+///
+/// Accounts (sketches; lifted from existing patterns —
+/// `staker_reward_pool_authority` PDA already exists on
+/// `ProcessRoutingFeeBurn`):
+///
+/// ```ignore
+/// #[derive(Accounts)]
+/// #[instruction(epoch: u64)]
+/// pub struct CommitStakerRewardsRoot<'info> {
+///     #[account(mut)]
+///     pub authority: Signer<'info>,
+///     #[account(seeds = [b"staking_config"], bump = staking_config.bump)]
+///     pub staking_config: Account<'info, StakingConfig>,
+///     #[account(
+///         init,
+///         payer = authority,
+///         space = 8 + StakerRewardEpoch::SIZE,
+///         seeds = [b"staker_reward_epoch", &epoch.to_le_bytes()],
+///         bump,
+///     )]
+///     pub epoch_account: Account<'info, StakerRewardEpoch>,
+///     /// CHECK: PDA authority for the pool ATA — referenced only to
+///     /// derive the budget cap (`staker_reward_pool_ata.amount`).
+///     #[account(seeds = [b"staker_reward_pool"], bump)]
+///     pub staker_reward_pool_authority: UncheckedAccount<'info>,
+///     #[account(
+///         associated_token::mint = stake_mint,
+///         associated_token::authority = staker_reward_pool_authority,
+///     )]
+///     pub staker_reward_pool_ata: Account<'info, TokenAccount>,
+///     #[account(constraint = stake_mint.key() == staking_config.stake_mint
+///         @ StargazeAnchorError::StakeMintUnset)]
+///     pub stake_mint: Account<'info, Mint>,
+///     pub system_program: Program<'info, System>,
+/// }
+///
+/// #[derive(Accounts)]
+/// #[instruction(epoch: u64, amount: u64)]
+/// pub struct ClaimStakerRewards<'info> {
+///     #[account(mut)]
+///     pub staker: Signer<'info>,
+///     #[account(
+///         mut,
+///         seeds = [b"staker_reward_epoch", &epoch.to_le_bytes()],
+///         bump = epoch_account.bump,
+///     )]
+///     pub epoch_account: Account<'info, StakerRewardEpoch>,
+///     #[account(
+///         init,
+///         payer = staker,
+///         space = 8 + StakerRewardClaim::SIZE,
+///         seeds = [b"staker_reward_claim", &epoch.to_le_bytes(), staker.key().as_ref()],
+///         bump,
+///     )]
+///     pub claim_account: Account<'info, StakerRewardClaim>,
+///     /// CHECK: PDA authority for the pool ATA — signs the transfer.
+///     #[account(seeds = [b"staker_reward_pool"], bump)]
+///     pub staker_reward_pool_authority: UncheckedAccount<'info>,
+///     #[account(
+///         mut,
+///         associated_token::mint = stake_mint,
+///         associated_token::authority = staker_reward_pool_authority,
+///     )]
+///     pub staker_reward_pool_ata: Account<'info, TokenAccount>,
+///     #[account(
+///         init_if_needed,
+///         payer = staker,
+///         associated_token::mint = stake_mint,
+///         associated_token::authority = staker,
+///     )]
+///     pub staker_ata: Account<'info, TokenAccount>,
+///     pub stake_mint: Account<'info, Mint>,
+///     pub token_program: Program<'info, Token>,
+///     pub associated_token_program: Program<'info, AssociatedToken>,
+///     pub system_program: Program<'info, System>,
+/// }
+/// ```
+///
+/// New account types:
+///   - `StakerRewardEpoch { epoch: u64, merkle_root: [u8; 32],
+///     budget: u64, remaining_budget: u64, committed_at: i64,
+///     swept: bool, bump: u8 }`
+///   - `StakerRewardClaim { epoch: u64, staker: Pubkey, amount: u64,
+///     claimed_at: i64, bump: u8 }` — exists purely as a replay guard;
+///     `init` of this PDA is what blocks the second claim.
+///
+/// Open questions for the operator before implementation:
+///   - **Epoch identifier** — caller-provided `u64` (admin invariant:
+///     monotonic, no skips) vs derived from `Clock::get()?.unix_timestamp
+///     / EPOCH_SECS`? Caller-provided is simpler and matches the
+///     off-chain settler's natural cursor; the trade-off is that
+///     skipped/out-of-order epoch numbers slip past on-chain
+///     validation.
+///   - **Merkle leaf encoding** — `sha256(pubkey || amount_le)` vs
+///     `keccak256(pubkey || amount_le)`. Keccak is cheaper on BPF if
+///     the off-chain side is also keccak; otherwise sha256 is the
+///     "standard Solana" default.
+///   - **Pair-hash convention** — sorted pair (no leaf ordering) vs
+///     positional pair (off-chain emits position bits). Sorted-pair is
+///     the Solana Merkle Distributor reference choice and keeps the
+///     proof shape minimal.
+///   - **Sweep grace** — 30/60/90 days? Defaults to 90 in the sketch
+///     above; longer means more locked rewards, shorter means more
+///     stakers miss claims and the reward leaks back via sweep.
+///   - **Root source** — reputation oracle vs a separate settler
+///     service. SCOPE.md punts this to the external-dev backend, but
+///     the on-chain side needs to know which keypair will be
+///     `staking_config.authority` for the commit ix.
+///   - **Cross-epoch budget invariant** — should the program track the
+///     sum of `remaining_budget` across all open epochs against the
+///     pool ATA balance, or trust the admin? On-chain enforcement would
+///     require iterating account state on every commit (expensive); the
+///     sketch trusts the admin and documents the constraint.
+
 /// Anchor `global:verify` ix discriminator — `sha256("global:verify")[..8]`.
 /// All three vault-verifier programs (`vault_verifier_aggregate_sum`,
 /// `vault_verifier_geofence`, `vault_verifier_buyer_key`) expose the same
@@ -564,9 +768,10 @@ pub mod stargaze_anchor {
     /// by the `staker_reward_pool_authority` PDA. On odd amounts the extra
     /// base unit is routed to stakers (`to_stakers = amount - amount/2`).
     ///
-    /// The reward pool only accumulates here — distribution is deferred.
-    /// Defer: staker reward distribution mechanism (pull-based Merkle vs
-    /// push-based proportional) is unresolved.
+    /// The reward pool only accumulates here — distribution is the
+    /// planned `commit_staker_rewards_root` + `claim_staker_rewards` +
+    /// `sweep_staker_rewards_epoch` pull-based Merkle path sketched
+    /// above the `VERIFY_IX_DISCRIMINATOR` const.
     pub fn process_routing_fee_burn(
         ctx: Context<ProcessRoutingFeeBurn>,
         amount: u64,
