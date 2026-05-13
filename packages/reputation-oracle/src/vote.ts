@@ -6,7 +6,7 @@
  * indexer (`packages/indexer/`) decodes the on-chain event and persists one
  * row per cast vote in the `reputation_voted` Postgres table. The oracle
  * reads those rows, aggregates per-provider, and writes a composite
- * reputation score back on-chain via `StargazeRegistry.setReputationScore`.
+ * reputation score back on-chain via `StargazeAnchor.set_reputation_score`.
  */
 
 /**
@@ -39,9 +39,9 @@ export interface Vote {
  * Per-provider aggregate ready to publish on-chain.
  *
  * `score` is the value that will be passed to
- * `StargazeRegistry.setReputationScore(bytes32, uint256)`. The contract
- * reverts with `ScoreOutOfRange` if `score > 1000`, so callers must keep
- * the value clamped to `[0, 1000]`.
+ * `StargazeAnchor.set_reputation_score(provider_id, new_score)`. The
+ * program rejects with `ScoreOutOfRange` if `score > 1000`, so callers
+ * must keep the value clamped to `[0, 1000]`.
  */
 export interface AggregatedScore {
   providerId: `0x${string}`;

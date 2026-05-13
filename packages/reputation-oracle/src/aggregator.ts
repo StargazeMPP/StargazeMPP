@@ -14,7 +14,7 @@ export const DEFAULT_MIN_VOTES = 3;
  */
 export const DEFAULT_HALF_LIFE_DAYS = 30;
 
-/** Max reputation score that `StargazeRegistry.setReputationScore` accepts. */
+/** Max reputation score that `StargazeAnchor.set_reputation_score` accepts. */
 export const MAX_REPUTATION = 1000;
 
 export interface AggregateOptions {

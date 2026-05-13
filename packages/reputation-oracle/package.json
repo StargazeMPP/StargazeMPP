@@ -2,7 +2,7 @@
   "name": "@stargazempp/reputation-oracle",
   "version": "0.0.0",
   "private": false,
-  "description": "Thin reference reputation oracle: aggregates ReputationVoted events from the indexer's Postgres projection into per-provider composite scores in [0, 1000], then publishes them on-chain via StargazeRegistry.setReputationScore.",
+  "description": "Thin reference reputation oracle: aggregates ReputationVoted events from the indexer's Postgres projection into per-provider composite scores in [0, 1000], then publishes them on-chain via StargazeAnchor.set_reputation_score.",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -23,10 +23,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@solana/web3.js": "^1.95.0",
     "@stargazempp/shared": "*",
     "bs58": "^6.0.0",
-    "pg": "^8.11.0",
-    "viem": "^2.21.0"
+    "pg": "^8.11.0"
   },
   "devDependencies": {
     "@types/node": "^20.0.0",

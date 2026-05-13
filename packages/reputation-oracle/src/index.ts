@@ -1,6 +1,6 @@
 // Public surface of the StargazeMPP reference reputation oracle.
 //
-// Composition: PostgresVoteSource → aggregateAll → EvmPublisher, wired
+// Composition: PostgresVoteSource → aggregateAll → SolanaPublisher, wired
 // together by `ReputationOracle.tick()`. See `README.md` for the math
 // and operational pre-flight.
 
@@ -19,8 +19,8 @@ export { type VoteSource, PostgresVoteSource } from './source.js';
 
 export {
   type ScorePublisher,
-  type EvmPublisherConfig,
-  EvmPublisher,
+  type SolanaPublisherConfig,
+  SolanaPublisher,
   MemoryPublisher,
 } from './publisher.js';
 
