@@ -33,11 +33,7 @@
     "typecheck": "tsc --noEmit",
     "clean": "rm -rf dist"
   },
-  "peerDependencies": {
-    "viem": "^2.0.0"
-  },
   "devDependencies": {
-    "typescript": "^5.5.0",
-    "viem": "^2.21.0"
+    "typescript": "^5.5.0"
   }
 }
