@@ -33,6 +33,14 @@ const CIRCUITS = [
     },
   },
   {
+    name: 'aggregate_mean',
+    // 3+5+...+17 = 80, mean 80/8 = 10 — exact integer.
+    input: {
+      values: [3, 5, 7, 9, 11, 13, 15, 17].map((v) => v.toString()),
+      claimedMean: '10',
+    },
+  },
+  {
     name: 'geofence',
     // Encoded micro-degree with a 2^31 offset (see geofence.circom for the
     // convention). Box is roughly Berlin, point is the Brandenburg Gate.

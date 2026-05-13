@@ -9,7 +9,7 @@
  * in alongside the rest of the contract source.
  */
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -20,6 +20,7 @@ const outDir = path.resolve(root, '..', 'contracts-evm', 'src', 'verifiers');
 
 const VERIFIERS = [
   { source: 'AggregateSumVerifier.sol', contractName: 'AggregateSumVerifier' },
+  { source: 'AggregateMeanVerifier.sol', contractName: 'AggregateMeanVerifier' },
   { source: 'GeofenceVerifier.sol', contractName: 'GeofenceVerifier' },
 ];
 
@@ -27,6 +28,10 @@ mkdirSync(outDir, { recursive: true });
 
 for (const { source, contractName } of VERIFIERS) {
   const src = path.join(buildDir, source);
+  if (!existsSync(src)) {
+    console.log(`  · ${source} not built yet, skipping`);
+    continue;
+  }
   const raw = readFileSync(src, 'utf-8');
   // Tighten pragma to the rest of the project (0.8.27) and rename the
   // single wrapper contract — snarkjs emits everything as `Groth16Verifier`.

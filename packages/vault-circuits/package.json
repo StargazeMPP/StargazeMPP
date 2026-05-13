@@ -29,6 +29,10 @@
     "setup:geofence-dev": "node scripts/setup-dev.mjs geofence",
     "verifier:geofence": "snarkjs zkey export solidityverifier build/geofence_final.zkey build/GeofenceVerifier.sol",
     "all:geofence-dev": "npm run compile:geofence && npm run setup:geofence-dev && npm run verifier:geofence && npm run publish-verifiers",
+    "compile:mean": "circom circuits/aggregate_mean.circom --r1cs --wasm --sym -l node_modules -l ../../node_modules -o build/",
+    "setup:mean-dev": "node scripts/setup-dev.mjs aggregate_mean",
+    "verifier:mean": "snarkjs zkey export solidityverifier build/aggregate_mean_final.zkey build/AggregateMeanVerifier.sol",
+    "all:mean-dev": "npm run compile:mean && npm run setup:mean-dev && npm run verifier:mean && npm run publish-verifiers",
     "publish-verifiers": "node scripts/publish-verifiers.mjs",
     "generate-test-vectors": "node scripts/generate-test-vectors.mjs"
   },

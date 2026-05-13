@@ -3,6 +3,7 @@ pragma solidity 0.8.27;
 
 import {Test} from "forge-std/Test.sol";
 import {AggregateSumVerifier} from "../src/verifiers/AggregateSumVerifier.sol";
+import {AggregateMeanVerifier} from "../src/verifiers/AggregateMeanVerifier.sol";
 import {GeofenceVerifier} from "../src/verifiers/GeofenceVerifier.sol";
 import {GAZEToken} from "../src/GAZEToken.sol";
 import {BurnController} from "../src/BurnController.sol";
@@ -20,15 +21,19 @@ interface IGroth16Like {
 
 contract VerifiersTest is Test {
     AggregateSumVerifier internal aggregate;
+    AggregateMeanVerifier internal mean;
     GeofenceVerifier internal geofence;
 
     string internal aggregateVector;
+    string internal meanVector;
     string internal geofenceVector;
 
     function setUp() public {
         aggregate = new AggregateSumVerifier();
+        mean = new AggregateMeanVerifier();
         geofence = new GeofenceVerifier();
         aggregateVector = vm.readFile("./test/vectors/aggregate_sum.json");
+        meanVector = vm.readFile("./test/vectors/aggregate_mean.json");
         geofenceVector = vm.readFile("./test/vectors/geofence.json");
     }
 
@@ -68,6 +73,27 @@ contract VerifiersTest is Test {
         uint256[1] memory pubSignals = [uint256(35)]; // off-by-one — must reject
 
         assertFalse(aggregate.verifyProof(a, b, c, pubSignals), "tampered signal must not verify");
+    }
+
+    function test_AggregateMeanVerifier_AcceptsKnownGoodProof() public view {
+        uint256[2] memory a = _loadPoint(meanVector, ".a");
+        uint256[2][2] memory b = _loadG2(meanVector, ".b");
+        uint256[2] memory c = _loadPoint(meanVector, ".c");
+        uint256[] memory signalsDyn = vm.parseJsonUintArray(meanVector, ".pubSignals");
+        require(signalsDyn.length == 1, "mean has one public signal");
+        uint256[1] memory pubSignals = [signalsDyn[0]];
+
+        assertTrue(mean.verifyProof(a, b, c, pubSignals), "valid mean proof must verify");
+        assertEq(pubSignals[0], 10, "claimed mean of 3..17 (step 2) is 10");
+    }
+
+    function test_AggregateMeanVerifier_RejectsTamperedPublicSignal() public view {
+        uint256[2] memory a = _loadPoint(meanVector, ".a");
+        uint256[2][2] memory b = _loadG2(meanVector, ".b");
+        uint256[2] memory c = _loadPoint(meanVector, ".c");
+        uint256[1] memory pubSignals = [uint256(11)]; // off-by-one mean
+
+        assertFalse(mean.verifyProof(a, b, c, pubSignals), "tampered mean must not verify");
     }
 
     function test_AggregateSumVerifier_RejectsTamperedProof() public view {
