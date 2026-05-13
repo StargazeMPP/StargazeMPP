@@ -52,6 +52,41 @@ required by Solana's `alt_bn128` syscalls. Same script's `--kind fixture`
 mode emits `[u8; 256]` proof + `[[u8; 32]; N]` public-signal constants for
 Rust integration tests.
 
+## Proving a real bundle
+
+`--kind bundle` runs `groth16.fullProve` for the given private inputs
+and emits the JSON proof bundle that the provider-sdk
+`submit-vault-proof` CLI consumes:
+
+```bash
+npm run prove:aggregate-sum -- --kind bundle \
+  --inputs '{"values":[1,2,3,4,5,6,7,8],"claimedSum":36}' \
+  > /tmp/aggregate_sum_bundle.json
+
+npm run prove:geofence -- --kind bundle \
+  --inputs '...' > /tmp/geofence_bundle.json
+```
+
+The schema is:
+
+```json
+{
+  "proofHex": "<512 hex chars = 256 bytes>",
+  "publicSignalsHex": ["<64 hex chars = 32 bytes>", ...]
+}
+```
+
+Same byte stream as `--kind fixture` — only the framing differs. Pipe
+the file straight into the CLI:
+
+```bash
+node packages/provider-sdk/bin/submit-vault-proof.ts \
+  --keypair ~/.config/solana/id.json \
+  --verifier <verifier-program-pubkey> \
+  --provider-id <hex> \
+  --proof /tmp/aggregate_sum_bundle.json
+```
+
 ## Trusted setup
 
 Phase 2 ceremony per circuit, with at least five independent contributors
@@ -68,7 +103,7 @@ Deploy + per-provider registration: [`docs/vault-verifier-deployment.md`](../../
 npm test
 ```
 
-Runs 9 vitest cases that exercise the off-chain proof generator. The
-Solana verifier programs are tested separately under
-`packages/anchor-program/tests/` (real litesvm proof rounds, dev-vkey
-fixtures via `emit-rust-vkey.mjs --kind fixture`).
+Runs 12 vitest cases — the off-chain proof generator plus the
+`--kind bundle` emitter contract. The Solana verifier programs are
+tested separately under `packages/anchor-program/tests/` (real litesvm
+proof rounds, dev-vkey fixtures via `emit-rust-vkey.mjs --kind fixture`).

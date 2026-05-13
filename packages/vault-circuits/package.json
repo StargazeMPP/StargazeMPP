@@ -29,7 +29,9 @@
     "all:geofence-dev": "npm run compile:geofence && npm run setup:geofence-dev",
     "compile:mean": "circom circuits/aggregate_mean.circom --r1cs --wasm --sym -l node_modules -l ../../node_modules -o build/",
     "setup:mean-dev": "node scripts/setup-dev.mjs aggregate_mean",
-    "all:mean-dev": "npm run compile:mean && npm run setup:mean-dev"
+    "all:mean-dev": "npm run compile:mean && npm run setup:mean-dev",
+    "prove:aggregate-sum": "node scripts/emit-rust-vkey.mjs --circuit aggregate_sum",
+    "prove:geofence": "node scripts/emit-rust-vkey.mjs --circuit geofence"
   },
   "dependencies": {
     "@stargazempp/shared": "*",

@@ -73,8 +73,18 @@ proof and public signals:
 ```
 
 Bytes must already be Solana-encoded — BN254 big-endian, c1-first G2,
-`pi_a.y` negated. Use `packages/vault-circuits/scripts/emit-rust-vkey.mjs
---kind fixture --inputs '…'` as the reference encoding pipeline and
-emit your own JSON in the same byte representation.
+`pi_a.y` negated. `packages/vault-circuits` ships a one-step emitter:
+
+```bash
+cd packages/vault-circuits
+npm run prove:aggregate-sum -- --kind bundle \
+  --inputs '{"values":[1,2,3,4,5,6,7,8],"claimedSum":36}' \
+  > aggregate-sum.bundle.json
+```
+
+The bundle that emits is byte-identical to the embedded
+`--kind fixture` form used by the on-chain integration tests, so a
+proof verified in litesvm and a proof submitted via this CLI share the
+same encoding contract.
 
 Add `--dry-run` to simulate the tx + dump program logs without sending.

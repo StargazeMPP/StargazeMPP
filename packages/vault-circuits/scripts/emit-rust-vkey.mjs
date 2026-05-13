@@ -1,8 +1,9 @@
 #!/usr/bin/env node
 /**
- * Emit Rust constants for groth16-solana-compatible Anchor verifier programs.
+ * Emit Rust constants and proof bundles for groth16-solana-compatible
+ * Anchor verifier programs.
  *
- * Two modes:
+ * Three modes:
  *   --kind vkey       Print a `src/vkey.rs` (alpha_g1 / beta_g2 / gamma_g2 /
  *                     delta_g2 / IC + `pub const VKEY: Groth16Vkey = ...`).
  *
@@ -10,6 +11,11 @@
  *                     print two consts (TEST_PROOF: [u8;256] and
  *                     TEST_PUBLIC_INPUTS: [[u8;32]; N]) suitable for pasting
  *                     into a Rust integration test.
+ *
+ *   --kind bundle     Run `snarkjs.groth16.fullProve` for the given inputs and
+ *                     print a JSON `{ "proofHex": "...", "publicSignalsHex":
+ *                     [...] }` bundle, in the schema consumed by the
+ *                     provider-sdk `submit-vault-proof` CLI.
  *
  * Byte transformations (BN254, big-endian, c1-first G2; matches the
  * convention proven correct in `vault-verifier-core`):
@@ -26,10 +32,14 @@
  *   node scripts/emit-rust-vkey.mjs --circuit aggregate_sum --kind fixture \
  *     --inputs '{"values":[1,2,3,4,5,6,7,8],"claimedSum":36}' \
  *     > /tmp/aggregate_sum_fixture.rs
+ *
+ *   node scripts/emit-rust-vkey.mjs --circuit aggregate_sum --kind bundle \
+ *     --inputs '{"values":[1,2,3,4,5,6,7,8],"claimedSum":36}' \
+ *     > /tmp/aggregate_sum_bundle.json
  */
 
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { readFileSync, existsSync } from 'node:fs';
 import { groth16 } from 'snarkjs';
 
@@ -162,7 +172,18 @@ function emitVkey(circuit) {
   return header.join('\n');
 }
 
-async function emitFixture(circuit, inputs) {
+/**
+ * Run the prover and return Solana-encoded bytes:
+ *   - `proofBytes`: 256-byte Uint8Array (a || b || c, with pi_a.y negated).
+ *   - `signalBytes`: Uint8Array[] of 32-byte BE-encoded public signals.
+ *   - `publicSignals`: raw decimal strings from snarkjs, retained for
+ *     audit / fixture annotations.
+ *
+ * Exported so vitest (and any future glue script) can reach for the same
+ * byte computation that backs `--kind fixture` and `--kind bundle`
+ * without spawning a child process.
+ */
+export async function proveAndEncode(circuit, inputs) {
   const wasm = path.join(buildDir, `${circuit}_js`, `${circuit}.wasm`);
   const zkey = path.join(buildDir, `${circuit}_final.zkey`);
   for (const p of [wasm, zkey]) {
@@ -182,9 +203,16 @@ async function emitFixture(circuit, inputs) {
   proofBytes.set(b, 64);
   proofBytes.set(c, 192);
 
-  const n = publicSignals.length;
-  const signalsRust = publicSignals
-    .map((s) => `    [\n${formatBytes(toBeBytes32(s), '        ')}\n    ],`)
+  const signalBytes = publicSignals.map((s) => toBeBytes32(s));
+
+  return { proofBytes, signalBytes, publicSignals };
+}
+
+async function emitFixture(circuit, inputs) {
+  const { proofBytes, signalBytes, publicSignals } = await proveAndEncode(circuit, inputs);
+  const n = signalBytes.length;
+  const signalsRust = signalBytes
+    .map((bytes) => `    [\n${formatBytes(bytes, '        ')}\n    ],`)
     .join('\n');
 
   const header = [
@@ -205,10 +233,44 @@ async function emitFixture(circuit, inputs) {
   return header.join('\n');
 }
 
+/**
+ * Run the prover and return the JSON proof-bundle string consumed by
+ * the provider-sdk `submit-vault-proof` CLI:
+ *
+ * ```json
+ * {
+ *   "proofHex": "<512 hex chars = 256 bytes>",
+ *   "publicSignalsHex": ["<64 hex chars = 32 bytes>", ...]
+ * }
+ * ```
+ *
+ * No `0x` prefix on the hex fields; the CLI loader accepts either form.
+ * The bundle is exactly the same byte stream the `--kind fixture` mode
+ * embeds in Rust constants, so a single proof can be checked both
+ * on-chain (via this bundle) and against a Rust integration test (via
+ * the fixture).
+ */
+export async function buildBundle(circuit, inputs) {
+  const { proofBytes, signalBytes } = await proveAndEncode(circuit, inputs);
+  const bundle = {
+    proofHex: bytesToHex(proofBytes),
+    publicSignalsHex: signalBytes.map((b) => bytesToHex(b)),
+  };
+  return JSON.stringify(bundle, null, 2) + '\n';
+}
+
+function bytesToHex(bytes) {
+  let out = '';
+  for (const b of bytes) {
+    out += b.toString(16).padStart(2, '0');
+  }
+  return out;
+}
+
 async function main() {
   const args = parseArgs(process.argv);
   if (!args.circuit) {
-    console.error('usage: --circuit <name> --kind vkey|fixture [--inputs JSON]');
+    console.error('usage: --circuit <name> --kind vkey|fixture|bundle [--inputs JSON]');
     process.exit(1);
   }
   const kind = args.kind || 'vkey';
@@ -223,13 +285,32 @@ async function main() {
     const parsed = JSON.parse(args.inputs);
     const out = await emitFixture(args.circuit, parsed);
     process.stdout.write(out);
+  } else if (kind === 'bundle') {
+    if (!args.inputs) {
+      console.error('--kind bundle requires --inputs JSON');
+      process.exit(1);
+    }
+    const parsed = JSON.parse(args.inputs);
+    const out = await buildBundle(args.circuit, parsed);
+    process.stdout.write(out);
   } else {
     console.error(`unknown --kind: ${kind}`);
     process.exit(1);
   }
 }
 
-main().catch((e) => {
-  console.error(e);
-  process.exit(1);
-});
+// Only run the CLI driver when invoked directly. Importing the module
+// (e.g. from vitest) should not auto-execute main().
+//
+// snarkjs leaves worker handles alive after fullProve resolves which
+// prevents Node from exiting on its own, so the CLI explicitly exits
+// once main() resolves. (Library callers can simply await the named
+// exports and let their host decide.)
+if (import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main()
+    .then(() => process.exit(0))
+    .catch((e) => {
+      console.error(e);
+      process.exit(1);
+    });
+}
