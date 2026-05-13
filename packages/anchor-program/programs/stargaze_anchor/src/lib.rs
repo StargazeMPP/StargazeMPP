@@ -46,13 +46,133 @@ pub const VOUCHER_MESSAGE_LEN: u32 = 133;
 pub const ROUTING_FEE_BPS: u16 = 200;
 
 /// Conversion of routing-fee USDC into $GAZE for the burn ladder is handled
-/// in a separate (admin-only) instruction `convert_routing_fees_to_gaze`
-/// which is **NOT** in scope here. The planned flow is:
-///   1. Drain `routing_fee_vault_ata` (USDC).
-///   2. Swap USDC -> $GAZE via Jupiter (or comparable router).
-///   3. CPI into `process_routing_fee_burn` with the resulting $GAZE.
-/// Until that instruction lands, settled routing fees accumulate as USDC
-/// in the vault.
+/// in a separate (admin-only) instruction `convert_routing_fees_to_gaze`,
+/// which is **NOT IMPLEMENTED YET** — the $GAZE SPL mint is not finalised
+/// (see Pump.fun launch blocker) and the Jupiter aggregator program id
+/// needs to be pinned in `UsdcConfig` (or a sibling config account) before
+/// the CPI is safe to wire. The sketch below is the operator's review
+/// surface for the ix shape; the IDL/handler land once the blockers clear.
+///
+/// Planned signature (admin-gated, mirrors `process_routing_fee_burn`):
+///
+/// ```ignore
+/// pub fn convert_routing_fees_to_gaze(
+///     ctx: Context<ConvertRoutingFeesToGaze>,
+///     usdc_in: u64,            // exact USDC amount to drain (<= vault balance)
+///     min_gaze_out: u64,       // slippage floor; admin computes off-chain from Jupiter quote
+///     route_data: Vec<u8>,     // opaque Jupiter ix data; program forwards verbatim
+/// ) -> Result<()>
+/// ```
+///
+/// Handler outline:
+///   1. `require_keys_eq!(authority, staking_config.authority)` — same admin
+///      gate as `process_routing_fee_burn`.
+///   2. Pin `stake_mint == staking_config.stake_mint` and
+///      `usdc_mint == usdc_config.usdc_mint`; require both are set
+///      (`StakeMintUnset`). Reject if `usdc_in == 0`.
+///   3. Pin `jupiter_program.key() == usdc_config.jupiter_program` (new
+///      field, defaults to `Pubkey::default()` until configured via a new
+///      `set_jupiter_program` admin ix).
+///   4. Snapshot `authority_gaze_ata.amount` as `gaze_before` (the $GAZE
+///      destination ATA must be owned by `authority` and use `stake_mint`).
+///   5. CPI: `token::transfer` from `routing_fee_vault_ata` →
+///      `swap_source_ata` (an authority-owned USDC ATA used as the Jupiter
+///      input). Signer seeds: `[b"routing_fee_vault", &[bump]]`.
+///      Alternative: skip the staging ATA and pass
+///      `routing_fee_vault_ata` directly into Jupiter — only viable if
+///      Jupiter accepts a PDA-owned source ATA with provided signer seeds
+///      via `invoke_signed`. The staging-ATA path is safer; operator to
+///      confirm the simpler path is feasible.
+///   6. CPI: invoke Jupiter at `jupiter_program` with `route_data` and
+///      `remaining_accounts` forwarded verbatim. Use `invoke` (or
+///      `invoke_signed` if step 5 was skipped). The on-chain program does
+///      **not** parse Jupiter route opcodes — the admin builds the route
+///      off-chain (Jupiter v6 quote API) and is trusted to pass a route
+///      that lands $GAZE in `authority_gaze_ata`.
+///   7. Reload `authority_gaze_ata`; compute
+///      `gaze_out = authority_gaze_ata.amount.saturating_sub(gaze_before)`.
+///      `require!(gaze_out >= min_gaze_out, StargazeAnchorError::SlippageExceeded)`
+///      (new error variant). This is the only on-chain check that the
+///      route did what the admin intended — slippage protection is the
+///      replacement for parsing the Jupiter ix.
+///   8. Emit `RoutingFeeConverted { usdc_in, gaze_out }`. **Do not** chain
+///      into `process_routing_fee_burn` from here — keeping the convert
+///      and burn-ladder steps as separate admin txs preserves the
+///      `RoutingFeeProcessed` audit trail in isolation and lets the
+///      operator delay the burn if needed. The admin runs
+///      `process_routing_fee_burn(gaze_out)` as the follow-up tx.
+///
+/// Accounts (sketch):
+///
+/// ```ignore
+/// #[derive(Accounts)]
+/// pub struct ConvertRoutingFeesToGaze<'info> {
+///     #[account(mut)]
+///     pub authority: Signer<'info>,
+///     #[account(seeds = [b"staking_config"], bump = staking_config.bump)]
+///     pub staking_config: Account<'info, StakingConfig>,
+///     #[account(seeds = [b"usdc_config"], bump = usdc_config.bump)]
+///     pub usdc_config: Account<'info, UsdcConfig>,
+///     #[account(constraint = stake_mint.key() == staking_config.stake_mint
+///         @ StargazeAnchorError::StakeMintUnset)]
+///     pub stake_mint: Account<'info, Mint>,
+///     #[account(constraint = usdc_mint.key() == usdc_config.usdc_mint
+///         @ StargazeAnchorError::SessionAccountMismatch)]
+///     pub usdc_mint: Account<'info, Mint>,
+///     /// CHECK: PDA authority for the singleton routing-fee USDC vault;
+///     /// signs the drain CPI via `invoke_signed`.
+///     #[account(seeds = [b"routing_fee_vault"], bump)]
+///     pub routing_fee_vault_authority: UncheckedAccount<'info>,
+///     #[account(
+///         mut,
+///         associated_token::mint = usdc_mint,
+///         associated_token::authority = routing_fee_vault_authority,
+///     )]
+///     pub routing_fee_vault_ata: Box<Account<'info, TokenAccount>>,
+///     /// Authority-owned USDC ATA used as the Jupiter input. May be
+///     /// init_if_needed; cleared to zero by Jupiter on a successful route.
+///     #[account(
+///         init_if_needed,
+///         payer = authority,
+///         associated_token::mint = usdc_mint,
+///         associated_token::authority = authority,
+///     )]
+///     pub swap_source_ata: Box<Account<'info, TokenAccount>>,
+///     /// Authority-owned $GAZE ATA — destination for the route output.
+///     /// Subsequently consumed by `process_routing_fee_burn`.
+///     #[account(
+///         init_if_needed,
+///         payer = authority,
+///         associated_token::mint = stake_mint,
+///         associated_token::authority = authority,
+///     )]
+///     pub authority_gaze_ata: Box<Account<'info, TokenAccount>>,
+///     /// CHECK: Jupiter aggregator program; address pinned via
+///     /// `usdc_config.jupiter_program`. Forwarding `remaining_accounts`
+///     /// to a wrong program would let the admin drain the vault into an
+///     /// arbitrary mint, so the pin is the load-bearing safety check.
+///     pub jupiter_program: UncheckedAccount<'info>,
+///     pub token_program: Program<'info, Token>,
+///     pub associated_token_program: Program<'info, AssociatedToken>,
+///     pub system_program: Program<'info, System>,
+///     // Jupiter route accounts forwarded as `remaining_accounts`; the
+///     // program does not enumerate them.
+/// }
+/// ```
+///
+/// Open questions for the operator before implementation:
+///   - **$GAZE mint** — confirm decimals + finalised Pump.fun mint pubkey.
+///   - **Jupiter program id pinning** — extend `UsdcConfig` with a
+///     `jupiter_program: Pubkey` field + a `set_jupiter_program` admin ix,
+///     or hardcode as a `#[constant]`? Recommend config-field so devnet vs
+///     mainnet swaps are operator-driven without redeploy.
+///   - **Route construction** — confirm the off-chain SDK calls Jupiter v6
+///     `/quote` + `/swap-instructions` and forwards the resulting ix bytes
+///     + account metas verbatim. The provider-sdk does not currently ship
+///     a Jupiter helper; that would be a sibling change in TS.
+///   - **Slippage default** — `min_gaze_out = 0` would disable the
+///     protection. Reject `min_gaze_out == 0` or accept it and document?
+///     Recommend rejecting; the admin should always specify a floor.
 
 /// Anchor `global:verify` ix discriminator — `sha256("global:verify")[..8]`.
 /// All three vault-verifier programs (`vault_verifier_aggregate_sum`,
