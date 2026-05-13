@@ -4,16 +4,19 @@
 // internal verifier exported below. The crypto primitive (voucher
 // recovery, deposit verification) lives in `./internal/`.
 
-export { StargazeMppVerifier, type StargazeMppVerifierOptions } from './internal/verifier.js';
+export {
+  StargazeMppVerifier,
+  type DepositProof,
+  type MppVerifier,
+  type StargazeMppVerifierOptions,
+  type VerifiedDeposit,
+} from './internal/verifier.js';
 export { recoverVoucherSigner } from './internal/voucher.js';
 export { parseX402Receipt, type X402ReceiptParserOptions } from './internal/x402-receipt.js';
 
 // Convenience re-exports so consumers only need one import.
 export type {
-  DepositProof,
-  MppVerifier,
   SignedVoucher,
-  VerifiedDeposit,
   VerifiedVoucher,
   VoucherMessage,
   X402Receipt,

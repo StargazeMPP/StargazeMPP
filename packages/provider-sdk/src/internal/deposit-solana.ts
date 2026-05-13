@@ -4,7 +4,7 @@ import {
   type ParsedInstruction,
   type PartiallyDecodedInstruction,
 } from '@solana/web3.js';
-import type { VerifiedDeposit } from '@stargazempp/shared';
+import type { VerifiedDeposit } from './verifier.js';
 
 const TOKEN_PROGRAM_IDS = new Set([
   'TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA', // SPL Token v1

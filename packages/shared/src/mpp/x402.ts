@@ -1,7 +1,7 @@
 /**
  * Solana-side x402 USDC receipt — the Coinbase / Solana Foundation flow that
- * runs in parallel to Tempo PathUSD vouchers. Parsed by the indexer and
- * surfaced into the session manager via `MppVerifier`.
+ * runs in parallel to Tempo PathUSD vouchers. Parsed by the indexer and by
+ * `@stargazempp/provider-sdk`'s `parseX402Receipt` for the session manager.
  */
 export interface X402Receipt {
   /** Solana transaction signature (base58). */
