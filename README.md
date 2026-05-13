@@ -152,6 +152,16 @@ npm run compile:aggregate
 
 ### Run the test suites
 
+The unified gate is the top-level Makefile:
+
+```bash
+make check        # anchor build + every cargo test + every vitest + every tsc
+make check-fast   # same minus anchor build (inner-loop iteration)
+make help         # list every sub-target
+```
+
+Individual stacks are available too:
+
 ```bash
 anchor test                                         # Solana
 cargo test --workspace                              # Rust crates
