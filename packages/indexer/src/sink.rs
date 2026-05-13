@@ -189,6 +189,153 @@ impl EventSink for PostgresSink {
                 .execute(&self.pool)
                 .await?;
             }
+            DecodedEvent::Staked(e) => {
+                // TODO: widen to NUMERIC if amount/total ever exceed i64::MAX.
+                sqlx::query(
+                    "INSERT INTO staked \
+                     (slot, signature, provider_id, owner, amount, total) \
+                     VALUES ($1, $2, $3, $4, $5, $6) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .bind(e.owner.0.as_slice())
+                .bind(e.amount as i64)
+                .bind(e.total as i64)
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::UnstakeRequested(e) => {
+                // TODO: widen to NUMERIC if amount ever exceeds i64::MAX.
+                sqlx::query(
+                    "INSERT INTO unstake_requested \
+                     (slot, signature, provider_id, owner, amount, cooldown_until) \
+                     VALUES ($1, $2, $3, $4, $5, $6) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .bind(e.owner.0.as_slice())
+                .bind(e.amount as i64)
+                .bind(e.cooldown_until)
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::Unstaked(e) => {
+                // TODO: widen to NUMERIC if amount ever exceeds i64::MAX.
+                sqlx::query(
+                    "INSERT INTO unstaked \
+                     (slot, signature, provider_id, owner, amount) \
+                     VALUES ($1, $2, $3, $4, $5) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .bind(e.owner.0.as_slice())
+                .bind(e.amount as i64)
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::Slashed(e) => {
+                // TODO: widen to NUMERIC if amount ever exceeds i64::MAX.
+                sqlx::query(
+                    "INSERT INTO slashed \
+                     (slot, signature, provider_id, owner, amount, destination) \
+                     VALUES ($1, $2, $3, $4, $5, $6) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .bind(e.owner.0.as_slice())
+                .bind(e.amount as i64)
+                .bind(e.destination.0.as_slice())
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::StakingInitialized(e) => {
+                // TODO: widen to NUMERIC if min_stake/verified_stake ever exceed i64::MAX.
+                sqlx::query(
+                    "INSERT INTO staking_initialized \
+                     (slot, signature, stake_mint, min_stake, verified_stake, cooldown_secs) \
+                     VALUES ($1, $2, $3, $4, $5, $6) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.stake_mint.0.as_slice())
+                .bind(e.min_stake as i64)
+                .bind(e.verified_stake as i64)
+                .bind(e.cooldown_secs)
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::StakeMintSet(e) => {
+                sqlx::query(
+                    "INSERT INTO stake_mint_set \
+                     (slot, signature, stake_mint) \
+                     VALUES ($1, $2, $3) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.stake_mint.0.as_slice())
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::RoutingFeeProcessed(e) => {
+                // TODO: widen to NUMERIC if burned/to_stakers ever exceed i64::MAX.
+                sqlx::query(
+                    "INSERT INTO routing_fee_processed \
+                     (slot, signature, burned, to_stakers) \
+                     VALUES ($1, $2, $3, $4) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.burned as i64)
+                .bind(e.to_stakers as i64)
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::ReputationVoteBurned(e) => {
+                sqlx::query(
+                    "INSERT INTO reputation_vote_burned \
+                     (slot, signature, voter, provider_id) \
+                     VALUES ($1, $2, $3, $4) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.voter.0.as_slice())
+                .bind(e.provider_id.as_slice())
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::StakeDispatched(e) => {
+                // TODO: widen to NUMERIC if amount/dest_chain_selector ever exceed i64::MAX.
+                // CCIP selectors today fit in i64 (Tempo testnet = 16_015_286_601_757_825_753).
+                sqlx::query(
+                    "INSERT INTO stake_dispatched \
+                     (slot, signature, provider_id, owner, amount, dest_chain_selector, receiver, payload, extra_args) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .bind(e.owner.0.as_slice())
+                .bind(e.amount as i64)
+                .bind(e.dest_chain_selector as i64)
+                .bind(e.receiver.as_slice())
+                .bind(e.payload.as_slice())
+                .bind(e.extra_args.as_slice())
+                .execute(&self.pool)
+                .await?;
+            }
         }
         Ok(())
     }

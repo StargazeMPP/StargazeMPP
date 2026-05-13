@@ -73,6 +73,73 @@ pub struct CcipDispatched {
     pub extra_args: Vec<u8>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct Staked {
+    pub provider_id: [u8; 32],
+    pub owner: PubkeyBytes,
+    pub amount: u64,
+    pub total: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct UnstakeRequested {
+    pub provider_id: [u8; 32],
+    pub owner: PubkeyBytes,
+    pub amount: u64,
+    pub cooldown_until: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct Unstaked {
+    pub provider_id: [u8; 32],
+    pub owner: PubkeyBytes,
+    pub amount: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct Slashed {
+    pub provider_id: [u8; 32],
+    pub owner: PubkeyBytes,
+    pub amount: u64,
+    pub destination: PubkeyBytes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct StakingInitialized {
+    pub stake_mint: PubkeyBytes,
+    pub min_stake: u64,
+    pub verified_stake: u64,
+    pub cooldown_secs: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct StakeMintSet {
+    pub stake_mint: PubkeyBytes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct RoutingFeeProcessed {
+    pub burned: u64,
+    pub to_stakers: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct ReputationVoteBurned {
+    pub voter: PubkeyBytes,
+    pub provider_id: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct StakeDispatched {
+    pub provider_id: [u8; 32],
+    pub owner: PubkeyBytes,
+    pub amount: u64,
+    pub dest_chain_selector: u64,
+    pub receiver: Vec<u8>,
+    pub payload: Vec<u8>,
+    pub extra_args: Vec<u8>,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodedEvent {
     ProviderRegistered(ProviderRegistered),
@@ -80,6 +147,15 @@ pub enum DecodedEvent {
     X402ReceiptRecorded(X402ReceiptRecorded),
     ReputationMirrored(ReputationMirrored),
     CcipDispatched(CcipDispatched),
+    Staked(Staked),
+    UnstakeRequested(UnstakeRequested),
+    Unstaked(Unstaked),
+    Slashed(Slashed),
+    StakingInitialized(StakingInitialized),
+    StakeMintSet(StakeMintSet),
+    RoutingFeeProcessed(RoutingFeeProcessed),
+    ReputationVoteBurned(ReputationVoteBurned),
+    StakeDispatched(StakeDispatched),
 }
 
 impl DecodedEvent {
@@ -90,6 +166,15 @@ impl DecodedEvent {
             DecodedEvent::X402ReceiptRecorded(_) => "X402ReceiptRecorded",
             DecodedEvent::ReputationMirrored(_) => "ReputationMirrored",
             DecodedEvent::CcipDispatched(_) => "CcipDispatched",
+            DecodedEvent::Staked(_) => "Staked",
+            DecodedEvent::UnstakeRequested(_) => "UnstakeRequested",
+            DecodedEvent::Unstaked(_) => "Unstaked",
+            DecodedEvent::Slashed(_) => "Slashed",
+            DecodedEvent::StakingInitialized(_) => "StakingInitialized",
+            DecodedEvent::StakeMintSet(_) => "StakeMintSet",
+            DecodedEvent::RoutingFeeProcessed(_) => "RoutingFeeProcessed",
+            DecodedEvent::ReputationVoteBurned(_) => "ReputationVoteBurned",
+            DecodedEvent::StakeDispatched(_) => "StakeDispatched",
         }
     }
 }
@@ -111,6 +196,23 @@ pub static DISC_REPUTATION_MIRRORED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("ReputationMirrored"));
 pub static DISC_CCIP_DISPATCHED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("CcipDispatched"));
+pub static DISC_STAKED: LazyLock<[u8; 8]> = LazyLock::new(|| anchor_event_discriminator("Staked"));
+pub static DISC_UNSTAKE_REQUESTED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("UnstakeRequested"));
+pub static DISC_UNSTAKED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("Unstaked"));
+pub static DISC_SLASHED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("Slashed"));
+pub static DISC_STAKING_INITIALIZED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("StakingInitialized"));
+pub static DISC_STAKE_MINT_SET: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("StakeMintSet"));
+pub static DISC_ROUTING_FEE_PROCESSED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("RoutingFeeProcessed"));
+pub static DISC_REPUTATION_VOTE_BURNED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("ReputationVoteBurned"));
+pub static DISC_STAKE_DISPATCHED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("StakeDispatched"));
 
 /// Parse a single program log line. Returns `None` for non-`Program data:`
 /// lines, malformed base64, unknown discriminators, or borsh failures.
@@ -142,6 +244,33 @@ pub fn decode_event_bytes(bytes: &[u8]) -> Option<DecodedEvent> {
     }
     if disc == DISC_CCIP_DISPATCHED.as_ref() {
         return CcipDispatched::deserialize(&mut rest).ok().map(DecodedEvent::CcipDispatched);
+    }
+    if disc == DISC_STAKED.as_ref() {
+        return Staked::deserialize(&mut rest).ok().map(DecodedEvent::Staked);
+    }
+    if disc == DISC_UNSTAKE_REQUESTED.as_ref() {
+        return UnstakeRequested::deserialize(&mut rest).ok().map(DecodedEvent::UnstakeRequested);
+    }
+    if disc == DISC_UNSTAKED.as_ref() {
+        return Unstaked::deserialize(&mut rest).ok().map(DecodedEvent::Unstaked);
+    }
+    if disc == DISC_SLASHED.as_ref() {
+        return Slashed::deserialize(&mut rest).ok().map(DecodedEvent::Slashed);
+    }
+    if disc == DISC_STAKING_INITIALIZED.as_ref() {
+        return StakingInitialized::deserialize(&mut rest).ok().map(DecodedEvent::StakingInitialized);
+    }
+    if disc == DISC_STAKE_MINT_SET.as_ref() {
+        return StakeMintSet::deserialize(&mut rest).ok().map(DecodedEvent::StakeMintSet);
+    }
+    if disc == DISC_ROUTING_FEE_PROCESSED.as_ref() {
+        return RoutingFeeProcessed::deserialize(&mut rest).ok().map(DecodedEvent::RoutingFeeProcessed);
+    }
+    if disc == DISC_REPUTATION_VOTE_BURNED.as_ref() {
+        return ReputationVoteBurned::deserialize(&mut rest).ok().map(DecodedEvent::ReputationVoteBurned);
+    }
+    if disc == DISC_STAKE_DISPATCHED.as_ref() {
+        return StakeDispatched::deserialize(&mut rest).ok().map(DecodedEvent::StakeDispatched);
     }
     None
 }
@@ -287,6 +416,118 @@ mod tests {
         assert!(e.payload[32..62].iter().all(|b| *b == 0));
         assert_eq!(u16::from_be_bytes([e.payload[62], e.payload[63]]), 500);
         assert_eq!(e.extra_args, Vec::<u8>::new());
+    }
+
+    #[test]
+    fn decodes_staked() {
+        let event = Staked {
+            provider_id: [13u8; 32],
+            owner: PubkeyBytes([14u8; 32]),
+            amount: 50_000_000,
+            total: 150_000_000,
+        };
+        let log = synth_log(&DISC_STAKED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::Staked(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_unstake_requested() {
+        let event = UnstakeRequested {
+            provider_id: [15u8; 32],
+            owner: PubkeyBytes([16u8; 32]),
+            amount: 25_000_000,
+            cooldown_until: 1_700_604_800,
+        };
+        let log = synth_log(&DISC_UNSTAKE_REQUESTED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::UnstakeRequested(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_unstaked() {
+        let event = Unstaked {
+            provider_id: [17u8; 32],
+            owner: PubkeyBytes([18u8; 32]),
+            amount: 25_000_000,
+        };
+        let log = synth_log(&DISC_UNSTAKED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::Unstaked(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_slashed() {
+        let event = Slashed {
+            provider_id: [19u8; 32],
+            owner: PubkeyBytes([20u8; 32]),
+            amount: 10_000_000,
+            destination: PubkeyBytes([21u8; 32]),
+        };
+        let log = synth_log(&DISC_SLASHED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::Slashed(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_staking_initialized() {
+        let event = StakingInitialized {
+            stake_mint: PubkeyBytes([22u8; 32]),
+            min_stake: 50_000_000,
+            verified_stake: 500_000_000,
+            cooldown_secs: 7 * 86_400,
+        };
+        let log = synth_log(&DISC_STAKING_INITIALIZED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::StakingInitialized(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_stake_mint_set() {
+        let event = StakeMintSet {
+            stake_mint: PubkeyBytes([23u8; 32]),
+        };
+        let log = synth_log(&DISC_STAKE_MINT_SET, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::StakeMintSet(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_routing_fee_processed() {
+        let event = RoutingFeeProcessed {
+            burned: 500_000,
+            to_stakers: 500_000,
+        };
+        let log = synth_log(&DISC_ROUTING_FEE_PROCESSED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::RoutingFeeProcessed(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_reputation_vote_burned() {
+        let event = ReputationVoteBurned {
+            voter: PubkeyBytes([24u8; 32]),
+            provider_id: [25u8; 32],
+        };
+        let log = synth_log(&DISC_REPUTATION_VOTE_BURNED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::ReputationVoteBurned(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_stake_dispatched() {
+        let event = StakeDispatched {
+            provider_id: [26u8; 32],
+            owner: PubkeyBytes([27u8; 32]),
+            amount: 100_000_000,
+            dest_chain_selector: 16_015_286_601_757_825_753,
+            receiver: vec![0xde, 0xad, 0xbe, 0xef],
+            payload: vec![1, 2, 3, 4, 5],
+            extra_args: vec![],
+        };
+        let log = synth_log(&DISC_STAKE_DISPATCHED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::StakeDispatched(ref e) if e == &event));
     }
 
     #[test]

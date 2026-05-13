@@ -210,6 +210,89 @@ async fn handle_event(
             payload_bytes = e.payload.len(),
             "anchor event"
         ),
+        DecodedEvent::Staked(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            owner = %e.owner,
+            amount = e.amount,
+            total = e.total,
+            "anchor event"
+        ),
+        DecodedEvent::UnstakeRequested(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            owner = %e.owner,
+            amount = e.amount,
+            cooldown_until = e.cooldown_until,
+            "anchor event"
+        ),
+        DecodedEvent::Unstaked(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            owner = %e.owner,
+            amount = e.amount,
+            "anchor event"
+        ),
+        DecodedEvent::Slashed(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            owner = %e.owner,
+            amount = e.amount,
+            destination = %e.destination,
+            "anchor event"
+        ),
+        DecodedEvent::StakingInitialized(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            stake_mint = %e.stake_mint,
+            min_stake = e.min_stake,
+            verified_stake = e.verified_stake,
+            cooldown_secs = e.cooldown_secs,
+            "anchor event"
+        ),
+        DecodedEvent::StakeMintSet(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            stake_mint = %e.stake_mint,
+            "anchor event"
+        ),
+        DecodedEvent::RoutingFeeProcessed(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            burned = e.burned,
+            to_stakers = e.to_stakers,
+            "anchor event"
+        ),
+        DecodedEvent::ReputationVoteBurned(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            voter = %e.voter,
+            provider_id = %hex::encode(e.provider_id),
+            "anchor event"
+        ),
+        DecodedEvent::StakeDispatched(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            owner = %e.owner,
+            amount = e.amount,
+            dest_chain_selector = e.dest_chain_selector,
+            payload_bytes = e.payload.len(),
+            "anchor event"
+        ),
     }
 
     if let Err(err) = sink.write(slot, signature, event).await {
