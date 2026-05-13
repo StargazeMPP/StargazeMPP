@@ -115,13 +115,30 @@ pub mod stargaze_anchor {
         provider_id: [u8; 32],
         accurate: bool,
     ) -> Result<()> {
+        // A vote always burns one $GAZE — atomicity at the ix level means
+        // an indexer that sees `ReputationVoted` is guaranteed the matching
+        // `ReputationVoteBurned` landed in the same tx.
+        require!(
+            ctx.accounts.staking_config.stake_mint != Pubkey::default(),
+            StargazeAnchorError::StakeMintUnset
+        );
+        let cpi_accounts = Burn {
+            mint: ctx.accounts.stake_mint.to_account_info(),
+            from: ctx.accounts.voter_ata.to_account_info(),
+            authority: ctx.accounts.voter.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
+        token::burn(cpi_ctx, VOTE_BURN_AMOUNT)?;
+
+        emit!(ReputationVoteBurned {
+            voter: ctx.accounts.voter.key(),
+            provider_id,
+        });
         emit!(ReputationVoted {
             provider_id,
             voter: ctx.accounts.voter.key(),
             accurate,
         });
-        // The $GAZE burn that gates each vote is enforced separately by
-        // `reputation_vote_burn`; this instruction only emits the vote.
         Ok(())
     }
 
@@ -1135,6 +1152,20 @@ pub struct CastReputationVote<'info> {
         bump = provider.bump
     )]
     pub provider: Account<'info, Provider>,
+    #[account(seeds = [b"staking_config"], bump = staking_config.bump)]
+    pub staking_config: Account<'info, StakingConfig>,
+    #[account(
+        mut,
+        constraint = stake_mint.key() == staking_config.stake_mint @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub stake_mint: Account<'info, Mint>,
+    #[account(
+        mut,
+        constraint = voter_ata.owner == voter.key() @ StargazeAnchorError::Unauthorized,
+        constraint = voter_ata.mint == stake_mint.key() @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub voter_ata: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
 }
 
 #[derive(Accounts)]

@@ -157,13 +157,18 @@ pub fn ix_register_provider(
     }
 }
 
-/// Build the `cast_reputation_vote` instruction.
+/// Build the `cast_reputation_vote` instruction. The vote burns one $GAZE
+/// from the voter's ATA — callers must seed the ATA with at least
+/// `VOTE_BURN_AMOUNT` worth of stake-mint balance before invoking.
 pub fn ix_cast_reputation_vote(
     voter: &Pubkey,
+    stake_mint: &Pubkey,
     provider_id: [u8; 32],
     accurate: bool,
 ) -> Instruction {
     let (provider, _) = provider_pda(&provider_id);
+    let (staking_config, _) = staking_config_pda();
+    let voter_ata = associated_token_address(voter, stake_mint);
     let data = stargaze_anchor::instruction::CastReputationVote {
         provider_id,
         accurate,
@@ -174,6 +179,10 @@ pub fn ix_cast_reputation_vote(
         accounts: vec![
             AccountMeta::new_readonly(*voter, true),
             AccountMeta::new_readonly(provider, false),
+            AccountMeta::new_readonly(staking_config, false),
+            AccountMeta::new(*stake_mint, false),
+            AccountMeta::new(voter_ata, false),
+            AccountMeta::new_readonly(TOKEN_PROGRAM_ID, false),
         ],
         data,
     }

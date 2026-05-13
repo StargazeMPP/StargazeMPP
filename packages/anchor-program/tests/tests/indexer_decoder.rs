@@ -151,13 +151,13 @@ fn decodes_reputation_voted_from_litesvm() {
     let (mut svm, authority) = setup_svm();
     let provider_id = [9u8; 32];
 
-    send(
-        &mut svm,
-        &authority,
-        &[&authority],
-        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
-    )
-    .expect("initialize");
+    // cast_reputation_vote now atomically burns one $GAZE — bootstrap the
+    // staking config + voter ATA so the burn step succeeds.
+    let initial_balance = VOTE_BURN_AMOUNT * 5;
+    let (mint_kp, voter, _voter_ata) =
+        bootstrap_with_mint(&mut svm, &authority, initial_balance);
+    let mint = mint_kp.pubkey();
+
     send(
         &mut svm,
         &authority,
@@ -171,20 +171,29 @@ fn decodes_reputation_voted_from_litesvm() {
     )
     .expect("register");
 
-    let voter = Keypair::new();
-    svm.airdrop(&voter.pubkey(), 1_000_000_000)
-        .expect("airdrop voter");
-
     let meta = send(
         &mut svm,
         &voter,
         &[&voter],
-        &[ix_cast_reputation_vote(&voter.pubkey(), provider_id, true)],
+        &[ix_cast_reputation_vote(
+            &voter.pubkey(),
+            &mint,
+            provider_id,
+            true,
+        )],
     )
     .expect("vote");
 
-    let DecodedEvent::ReputationVoted(e) = decode_single(&meta.logs) else {
-        panic!("expected ReputationVoted");
+    // cast_reputation_vote emits two events in order: ReputationVoteBurned
+    // then ReputationVoted. Decode both and assert the vote payload.
+    let events = decode_logs(&meta.logs);
+    assert_eq!(events.len(), 2, "expected burn + vote events, got {events:?}");
+    let DecodedEvent::ReputationVoted(e) = events
+        .iter()
+        .find(|e| e.name() == "ReputationVoted")
+        .expect("ReputationVoted present")
+    else {
+        unreachable!();
     };
     assert_eq!(e.provider_id, provider_id);
     assert_eq!(e.voter, PubkeyBytes(voter.pubkey().to_bytes()));
