@@ -54,6 +54,14 @@ pub const ROUTING_FEE_BPS: u16 = 200;
 /// Until that instruction lands, settled routing fees accumulate as USDC
 /// in the vault.
 
+/// Anchor `global:verify` ix discriminator — `sha256("global:verify")[..8]`.
+/// All three vault-verifier programs (`vault_verifier_aggregate_sum`,
+/// `vault_verifier_geofence`, `vault_verifier_buyer_key`) expose the same
+/// `verify(proof_bytes, public_signals)` entrypoint, so a single constant
+/// covers the manual-CPI path for every per-circuit verifier.
+const VERIFY_IX_DISCRIMINATOR: [u8; 8] =
+    [0x85, 0xa1, 0x8d, 0x30, 0x78, 0xc6, 0x58, 0x96];
+
 /// StargazeAnchor — Solana-side mirror of the Tempo `StargazeRegistry`.
 ///
 /// Responsibilities:
@@ -1121,6 +1129,92 @@ pub mod stargaze_anchor {
         emit!(VaultDeactivated { provider_id });
         Ok(())
     }
+
+    // ============ VAULT PROOF: instructions ============
+
+    /// Submit a Groth16 proof for `provider_id` against the per-provider
+    /// verifier program registered in `VaultConfig.on_chain_verifier`.
+    ///
+    /// The handler enforces:
+    ///   1. `signals_hash == sha256(public_signals)` so the PDA seed truly
+    ///      commits to the proof's public inputs (preventing the caller from
+    ///      bypassing replay protection by mis-labelling the same proof).
+    ///   2. Vault is active and its tier requires a proof (Open is rejected).
+    ///   3. The vault has a non-default verifier program id configured.
+    ///   4. The passed `verifier_program` account matches the configured id.
+    ///   5. The verifier program CPI succeeds.
+    ///   6. The `[b"vault_proof", provider_id, signals_hash]` PDA does not
+    ///      already exist — `init` (not `init_if_needed`) gives us a single-
+    ///      use replay guard "for free".
+    ///
+    /// Verifier programs are stand-alone Anchor programs that aren't pulled
+    /// in as deps; their ix data is constructed manually as
+    ///   `[discriminator(8) | borsh(VerifyArgs { proof_bytes, public_signals })]`.
+    pub fn submit_vault_proof(
+        ctx: Context<SubmitVaultProof>,
+        provider_id: [u8; 32],
+        signals_hash: [u8; 32],
+        proof_bytes: [u8; 256],
+        public_signals: Vec<[u8; 32]>,
+    ) -> Result<()> {
+        let signal_slices: Vec<&[u8]> = public_signals.iter().map(|s| s.as_slice()).collect();
+        let computed_hash = anchor_lang::solana_program::hash::hashv(&signal_slices).to_bytes();
+        require!(
+            computed_hash == signals_hash,
+            StargazeAnchorError::SignalsHashMismatch
+        );
+
+        let vault = &ctx.accounts.vault_config;
+        require!(vault.active, StargazeAnchorError::VaultInactive);
+        require!(
+            vault.tier != VaultTier::Open,
+            StargazeAnchorError::TierDoesNotRequireProof
+        );
+        require!(
+            vault.on_chain_verifier != Pubkey::default(),
+            StargazeAnchorError::VerifierUnset
+        );
+        require_keys_eq!(
+            ctx.accounts.verifier_program.key(),
+            vault.on_chain_verifier,
+            StargazeAnchorError::VerifierProgramMismatch
+        );
+
+        // Build the verifier-program ix data: 8-byte Anchor `global:verify`
+        // discriminator followed by Borsh(`proof_bytes` || `public_signals`).
+        let mut data = Vec::with_capacity(8 + 256 + 4 + public_signals.len() * 32);
+        data.extend_from_slice(&VERIFY_IX_DISCRIMINATOR);
+        AnchorSerialize::serialize(&proof_bytes, &mut data)?;
+        AnchorSerialize::serialize(&public_signals, &mut data)?;
+
+        let cpi_ix = anchor_lang::solana_program::instruction::Instruction {
+            program_id: ctx.accounts.verifier_program.key(),
+            accounts: vec![],
+            data,
+        };
+        anchor_lang::solana_program::program::invoke(
+            &cpi_ix,
+            &[ctx.accounts.verifier_program.to_account_info()],
+        )
+        .map_err(|_| error!(StargazeAnchorError::ProofVerificationFailed))?;
+
+        let tier = vault.tier;
+        let record = &mut ctx.accounts.proof_record;
+        record.provider_id = provider_id;
+        record.signals_hash = signals_hash;
+        record.submitter = ctx.accounts.submitter.key();
+        record.slot = Clock::get()?.slot;
+        record.bump = ctx.bumps.proof_record;
+
+        emit!(VaultProofVerified {
+            provider_id,
+            tier,
+            signals_hash,
+            submitter: record.submitter,
+            slot: record.slot,
+        });
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -1691,6 +1785,17 @@ pub enum StargazeAnchorError {
     NotProviderOwner,
     #[msg("Vault PDA does not exist or has been deactivated.")]
     VaultInactive,
+    // ============ VAULT PROOF errors ============
+    #[msg("Vault has no on-chain verifier configured (Pubkey::default()).")]
+    VerifierUnset,
+    #[msg("Passed verifier program does not match VaultConfig.on_chain_verifier.")]
+    VerifierProgramMismatch,
+    #[msg("Verifier program CPI rejected the proof.")]
+    ProofVerificationFailed,
+    #[msg("Vault tier does not require a Groth16 proof.")]
+    TierDoesNotRequireProof,
+    #[msg("signals_hash does not commit to sha256 of the passed public_signals.")]
+    SignalsHashMismatch,
 }
 
 // ============ ESCROW: accounts ============
@@ -2067,6 +2172,60 @@ pub struct VaultBuyerKeyRotationUpdated {
 #[event]
 pub struct VaultDeactivated {
     pub provider_id: [u8; 32],
+}
+
+// ============ VAULT PROOF: accounts ============
+
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32], signals_hash: [u8; 32])]
+pub struct SubmitVaultProof<'info> {
+    #[account(mut)]
+    pub submitter: Signer<'info>,
+    #[account(
+        seeds = [b"vault", provider_id.as_ref()],
+        bump = vault_config.bump
+    )]
+    pub vault_config: Account<'info, VaultConfig>,
+    /// CHECK: the program id is validated against
+    /// `vault_config.on_chain_verifier` inside the handler before any CPI.
+    /// The account itself is only loaded as the CPI target; stargaze_anchor
+    /// never reads or writes its data.
+    pub verifier_program: UncheckedAccount<'info>,
+    #[account(
+        init,
+        payer = submitter,
+        space = 8 + VaultProofRecord::INIT_SPACE,
+        seeds = [b"vault_proof", provider_id.as_ref(), signals_hash.as_ref()],
+        bump
+    )]
+    pub proof_record: Account<'info, VaultProofRecord>,
+    pub system_program: Program<'info, System>,
+}
+
+// ============ VAULT PROOF: state ============
+
+/// Audit-trail record for a verified Groth16 proof. PDA seeds
+/// `[b"vault_proof", provider_id, signals_hash]` are `init`-only, so the
+/// account's mere existence is the replay guard.
+#[account]
+#[derive(InitSpace)]
+pub struct VaultProofRecord {
+    pub provider_id: [u8; 32],
+    pub signals_hash: [u8; 32],
+    pub submitter: Pubkey,
+    pub slot: u64,
+    pub bump: u8,
+}
+
+// ============ VAULT PROOF: events ============
+
+#[event]
+pub struct VaultProofVerified {
+    pub provider_id: [u8; 32],
+    pub tier: VaultTier,
+    pub signals_hash: [u8; 32],
+    pub submitter: Pubkey,
+    pub slot: u64,
 }
 
 // ============ ESCROW: helpers ============

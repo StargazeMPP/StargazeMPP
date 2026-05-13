@@ -7,14 +7,6 @@
     "description": "Solana-side mirror of StargazeRegistry for Solana-native providers, plus x402 USDC receipt verification."
   },
   "docs": [
-    "Conversion of routing-fee USDC into $GAZE for the burn ladder is handled",
-    "in a separate (admin-only) instruction `convert_routing_fees_to_gaze`",
-    "which is **NOT** in scope here. The planned flow is:",
-    "1. Drain `routing_fee_vault_ata` (USDC).",
-    "2. Swap USDC -> $GAZE via Jupiter (or comparable router).",
-    "3. CPI into `process_routing_fee_burn` with the resulting $GAZE.",
-    "Until that instruction lands, settled routing fees accumulate as USDC",
-    "in the vault.",
     "StargazeAnchor — Solana-side mirror of the Tempo `StargazeRegistry`.",
     "",
     "Responsibilities:",
@@ -2921,6 +2913,151 @@
           "type": "u64"
         }
       ]
+    },
+    {
+      "name": "submit_vault_proof",
+      "docs": [
+        "Submit a Groth16 proof for `provider_id` against the per-provider",
+        "verifier program registered in `VaultConfig.on_chain_verifier`.",
+        "",
+        "The handler enforces:",
+        "1. `signals_hash == sha256(public_signals)` so the PDA seed truly",
+        "commits to the proof's public inputs (preventing the caller from",
+        "bypassing replay protection by mis-labelling the same proof).",
+        "2. Vault is active and its tier requires a proof (Open is rejected).",
+        "3. The vault has a non-default verifier program id configured.",
+        "4. The passed `verifier_program` account matches the configured id.",
+        "5. The verifier program CPI succeeds.",
+        "6. The `[b\"vault_proof\", provider_id, signals_hash]` PDA does not",
+        "already exist — `init` (not `init_if_needed`) gives us a single-",
+        "use replay guard \"for free\".",
+        "",
+        "Verifier programs are stand-alone Anchor programs that aren't pulled",
+        "in as deps; their ix data is constructed manually as",
+        "`[discriminator(8) | borsh(VerifyArgs { proof_bytes, public_signals })]`."
+      ],
+      "discriminator": [
+        173,
+        25,
+        13,
+        10,
+        127,
+        224,
+        207,
+        245
+      ],
+      "accounts": [
+        {
+          "name": "submitter",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "vault_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "verifier_program",
+          "docs": [
+            "`vault_config.on_chain_verifier` inside the handler before any CPI.",
+            "The account itself is only loaded as the CPI target; stargaze_anchor",
+            "never reads or writes its data."
+          ]
+        },
+        {
+          "name": "proof_record",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116,
+                  95,
+                  112,
+                  114,
+                  111,
+                  111,
+                  102
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              },
+              {
+                "kind": "arg",
+                "path": "signals_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "provider_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "signals_hash",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "proof_bytes",
+          "type": {
+            "array": [
+              "u8",
+              256
+            ]
+          }
+        },
+        {
+          "name": "public_signals",
+          "type": {
+            "vec": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        }
+      ]
     }
   ],
   "accounts": [
@@ -3013,6 +3150,19 @@
         102,
         119,
         77
+      ]
+    },
+    {
+      "name": "VaultProofRecord",
+      "discriminator": [
+        76,
+        58,
+        0,
+        164,
+        226,
+        31,
+        209,
+        94
       ]
     },
     {
@@ -3304,6 +3454,19 @@
       ]
     },
     {
+      "name": "VaultProofVerified",
+      "discriminator": [
+        225,
+        39,
+        222,
+        43,
+        76,
+        24,
+        221,
+        31
+      ]
+    },
+    {
       "name": "VoucherSettled",
       "discriminator": [
         17,
@@ -3435,6 +3598,31 @@
       "code": 6020,
       "name": "VaultInactive",
       "msg": "Vault PDA does not exist or has been deactivated."
+    },
+    {
+      "code": 6021,
+      "name": "VerifierUnset",
+      "msg": "Vault has no on-chain verifier configured (Pubkey::default())."
+    },
+    {
+      "code": 6022,
+      "name": "VerifierProgramMismatch",
+      "msg": "Passed verifier program does not match VaultConfig.on_chain_verifier."
+    },
+    {
+      "code": 6023,
+      "name": "ProofVerificationFailed",
+      "msg": "Verifier program CPI rejected the proof."
+    },
+    {
+      "code": 6024,
+      "name": "TierDoesNotRequireProof",
+      "msg": "Vault tier does not require a Groth16 proof."
+    },
+    {
+      "code": 6025,
+      "name": "SignalsHashMismatch",
+      "msg": "signals_hash does not commit to sha256 of the passed public_signals."
     }
   ],
   "types": [
@@ -4286,6 +4474,91 @@
                 32
               ]
             }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultProofRecord",
+      "docs": [
+        "Audit-trail record for a verified Groth16 proof. PDA seeds",
+        "`[b\"vault_proof\", provider_id, signals_hash]` are `init`-only, so the",
+        "account's mere existence is the replay guard."
+      ],
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "signals_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "submitter",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultProofVerified",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "tier",
+            "type": {
+              "defined": {
+                "name": "VaultTier"
+              }
+            }
+          },
+          {
+            "name": "signals_hash",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "submitter",
+            "type": "pubkey"
+          },
+          {
+            "name": "slot",
+            "type": "u64"
           }
         ]
       }

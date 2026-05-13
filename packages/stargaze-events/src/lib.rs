@@ -140,6 +140,29 @@ pub struct StakeDispatched {
     pub extra_args: Vec<u8>,
 }
 
+/// Mirror of the on-chain `stargaze_anchor::VaultTier` enum. Variants must
+/// stay in the same declaration order as the on-chain definition — anchor's
+/// borsh 0.10 encodes enum discriminants by declaration position, ignoring
+/// any `#[repr(u8)]` values. `use_discriminant=false` here pins our borsh
+/// 1.x decoder to the same behaviour.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+#[borsh(use_discriminant = false)]
+pub enum VaultTier {
+    Open,
+    ZkAggregate,
+    Confidential,
+    BuyerKey,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct VaultProofVerified {
+    pub provider_id: [u8; 32],
+    pub tier: VaultTier,
+    pub signals_hash: [u8; 32],
+    pub submitter: PubkeyBytes,
+    pub slot: u64,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodedEvent {
     ProviderRegistered(ProviderRegistered),
@@ -156,6 +179,7 @@ pub enum DecodedEvent {
     RoutingFeeProcessed(RoutingFeeProcessed),
     ReputationVoteBurned(ReputationVoteBurned),
     StakeDispatched(StakeDispatched),
+    VaultProofVerified(VaultProofVerified),
 }
 
 impl DecodedEvent {
@@ -175,6 +199,7 @@ impl DecodedEvent {
             DecodedEvent::RoutingFeeProcessed(_) => "RoutingFeeProcessed",
             DecodedEvent::ReputationVoteBurned(_) => "ReputationVoteBurned",
             DecodedEvent::StakeDispatched(_) => "StakeDispatched",
+            DecodedEvent::VaultProofVerified(_) => "VaultProofVerified",
         }
     }
 }
@@ -213,6 +238,8 @@ pub static DISC_REPUTATION_VOTE_BURNED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("ReputationVoteBurned"));
 pub static DISC_STAKE_DISPATCHED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("StakeDispatched"));
+pub static DISC_VAULT_PROOF_VERIFIED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("VaultProofVerified"));
 
 /// Parse a single program log line. Returns `None` for non-`Program data:`
 /// lines, malformed base64, unknown discriminators, or borsh failures.
@@ -271,6 +298,9 @@ pub fn decode_event_bytes(bytes: &[u8]) -> Option<DecodedEvent> {
     }
     if disc == DISC_STAKE_DISPATCHED.as_ref() {
         return StakeDispatched::deserialize(&mut rest).ok().map(DecodedEvent::StakeDispatched);
+    }
+    if disc == DISC_VAULT_PROOF_VERIFIED.as_ref() {
+        return VaultProofVerified::deserialize(&mut rest).ok().map(DecodedEvent::VaultProofVerified);
     }
     None
 }
@@ -528,6 +558,35 @@ mod tests {
         let log = synth_log(&DISC_STAKE_DISPATCHED, borsh::to_vec(&event).unwrap());
         let decoded = decode_program_log(&log).expect("decodes");
         assert!(matches!(decoded, DecodedEvent::StakeDispatched(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_vault_proof_verified() {
+        let event = VaultProofVerified {
+            provider_id: [28u8; 32],
+            tier: VaultTier::ZkAggregate,
+            signals_hash: [29u8; 32],
+            submitter: PubkeyBytes([30u8; 32]),
+            slot: 1_234_567,
+        };
+        let log = synth_log(&DISC_VAULT_PROOF_VERIFIED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::VaultProofVerified(ref e) if e == &event));
+    }
+
+    #[test]
+    fn vault_tier_round_trips_all_variants() {
+        for tier in [
+            VaultTier::Open,
+            VaultTier::ZkAggregate,
+            VaultTier::Confidential,
+            VaultTier::BuyerKey,
+        ] {
+            let bytes = borsh::to_vec(&tier).unwrap();
+            assert_eq!(bytes.len(), 1, "tier serialises to a single byte");
+            let back: VaultTier = borsh::from_slice(&bytes).unwrap();
+            assert_eq!(back, tier);
+        }
     }
 
     #[test]

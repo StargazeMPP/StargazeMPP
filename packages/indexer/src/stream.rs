@@ -293,6 +293,16 @@ async fn handle_event(
             payload_bytes = e.payload.len(),
             "anchor event"
         ),
+        DecodedEvent::VaultProofVerified(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            tier = ?e.tier,
+            signals_hash = %hex::encode(e.signals_hash),
+            submitter = %e.submitter,
+            "anchor event"
+        ),
     }
 
     if let Err(err) = sink.write(slot, signature, event).await {

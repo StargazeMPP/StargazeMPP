@@ -336,6 +336,10 @@ impl EventSink for PostgresSink {
                 .execute(&self.pool)
                 .await?;
             }
+            // Postgres projection lands with the escrow + vault registry sweep
+            // — for now we keep the variant exhaustive at the stream level
+            // and skip persistence so the indexer keeps building.
+            DecodedEvent::VaultProofVerified(_) => {}
         }
         Ok(())
     }

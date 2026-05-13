@@ -83,6 +83,23 @@ pub fn setup_svm() -> (LiteSVM, Keypair) {
     (svm, payer)
 }
 
+/// Same as [`setup_svm`] but also loads the three verifier programs at their
+/// declared ids. Used by `submit_vault_proof` tests that need stargaze_anchor
+/// + at least one verifier present in the same SVM for the manual CPI.
+pub fn setup_svm_with_verifiers() -> (LiteSVM, Keypair) {
+    let (mut svm, payer) = setup_svm();
+    svm.add_program_from_file(
+        vault_verifier_aggregate_sum::ID,
+        VAULT_VERIFIER_AGGREGATE_SUM_SO,
+    )
+    .expect("load vault_verifier_aggregate_sum.so");
+    svm.add_program_from_file(vault_verifier_geofence::ID, VAULT_VERIFIER_GEOFENCE_SO)
+        .expect("load vault_verifier_geofence.so");
+    svm.add_program_from_file(vault_verifier_buyer_key::ID, VAULT_VERIFIER_BUYER_KEY_SO)
+        .expect("load vault_verifier_buyer_key.so");
+    (svm, payer)
+}
+
 pub fn config_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[b"config"], &PROGRAM_ID)
 }
@@ -1048,4 +1065,63 @@ pub fn ix_deactivate_vault(admin: &Pubkey, provider_id: [u8; 32]) -> Instruction
         ],
         data,
     }
+}
+
+// ============ VAULT PROOF: PDA helpers ============
+
+pub fn vault_proof_pda(provider_id: &[u8; 32], signals_hash: &[u8; 32]) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[b"vault_proof", provider_id.as_ref(), signals_hash.as_ref()],
+        &PROGRAM_ID,
+    )
+}
+
+// ============ VAULT PROOF: instruction builders ============
+
+/// Build the `submit_vault_proof` instruction.
+///
+/// The caller (`submitter`) pays rent for the freshly-created
+/// `VaultProofRecord` PDA; the on-chain handler enforces the manual CPI into
+/// `verifier_program`. Pass a deliberately-wrong `verifier_program` to
+/// exercise the `VerifierProgramMismatch` branch.
+pub fn ix_submit_vault_proof(
+    submitter: &Pubkey,
+    verifier_program: Pubkey,
+    provider_id: [u8; 32],
+    signals_hash: [u8; 32],
+    proof_bytes: [u8; 256],
+    public_signals: Vec<[u8; 32]>,
+) -> Instruction {
+    let (vault_config, _) = vault_config_pda(&provider_id);
+    let (proof_record, _) = vault_proof_pda(&provider_id, &signals_hash);
+    let data = stargaze_anchor::instruction::SubmitVaultProof {
+        provider_id,
+        signals_hash,
+        proof_bytes,
+        public_signals,
+    }
+    .data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new(*submitter, true),
+            AccountMeta::new_readonly(vault_config, false),
+            AccountMeta::new_readonly(verifier_program, false),
+            AccountMeta::new(proof_record, false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+        ],
+        data,
+    }
+}
+
+/// sha256 of the concatenated 32-byte public-signal limbs. Matches the
+/// on-chain `signals_hash` derivation so off-chain code can pre-compute the
+/// PDA address before sending the ix.
+pub fn compute_signals_hash(public_signals: &[[u8; 32]]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    for sig in public_signals {
+        hasher.update(sig);
+    }
+    hasher.finalize().into()
 }
