@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-13T09:02:23.724Z",
+  "generatedAt": "2026-05-13T09:36:59.217Z",
   "contracts": {
     "StargazeEscrow": {
       "file": "./StargazeEscrow.json",
@@ -16,6 +16,10 @@
     "StargazeCcipReceiver": {
       "file": "./StargazeCcipReceiver.json",
       "bytecodeHash": "23b7c89df0bad2178a7fc75a3a126b67491d75d9ba231c2639bf0361690b14bb"
+    },
+    "StargazeStakeMirror": {
+      "file": "./StargazeStakeMirror.json",
+      "bytecodeHash": "149805fba4d0ef7f96ed3d821f54247cb575762739e44fad02b0dfd6d37a984d"
     }
   }
 }
