@@ -213,6 +213,38 @@ pub fn ix_dispatch_reputation_to_tempo(
     }
 }
 
+/// Build the `dispatch_stake_to_tempo` instruction.
+pub fn ix_dispatch_stake_to_tempo(
+    sender: &Pubkey,
+    ccip_router_program: &Pubkey,
+    provider_id: [u8; 32],
+    owner: Pubkey,
+    dest_chain_selector: u64,
+    receiver: Vec<u8>,
+    extra_args: Vec<u8>,
+) -> Instruction {
+    let (staking_config, _) = staking_config_pda();
+    let (stake_account, _) = stake_account_pda(&provider_id, &owner);
+    let data = stargaze_anchor::instruction::DispatchStakeToTempo {
+        provider_id,
+        owner,
+        dest_chain_selector,
+        receiver,
+        extra_args,
+    }
+    .data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new_readonly(*sender, true),
+            AccountMeta::new_readonly(staking_config, false),
+            AccountMeta::new_readonly(stake_account, false),
+            AccountMeta::new_readonly(*ccip_router_program, false),
+        ],
+        data,
+    }
+}
+
 pub fn staking_config_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[b"staking_config"], &PROGRAM_ID)
 }

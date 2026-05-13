@@ -395,6 +395,126 @@
       ]
     },
     {
+      "name": "dispatch_stake_to_tempo",
+      "docs": [
+        "Dispatch a per-staker stake snapshot for `(provider_id, owner)` to the",
+        "Tempo `StargazeStakeMirror` receiver via Chainlink CCIP. The on-chain",
+        "`StakeAccount.amount` is the authoritative value being mirrored.",
+        "",
+        "Payload schema (matches `StargazeStakeMirror.ccipReceive`):",
+        "`abi.encode(bytes32 providerId, address owner, uint256 amount)` —",
+        "96 bytes total.",
+        "",
+        "Note: `owner` is the Solana staker pubkey truncated to the bottom 20",
+        "bytes to fit Solidity's 32-byte address slot; the Tempo mirror treats",
+        "it as a per-Solana-staker key, NOT an EVM address. The Tempo side",
+        "never needs to send a transaction from this address.",
+        "",
+        "CPI into the Chainlink router is wired in M4; for now the message is",
+        "emitted as a `StakeDispatched` event so the indexer can observe it."
+      ],
+      "discriminator": [
+        7,
+        39,
+        40,
+        162,
+        14,
+        51,
+        20,
+        55
+      ],
+      "accounts": [
+        {
+          "name": "sender",
+          "signer": true
+        },
+        {
+          "name": "staking_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  105,
+                  110,
+                  103,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "stake_account",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  116,
+                  97,
+                  107,
+                  101
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              },
+              {
+                "kind": "arg",
+                "path": "owner"
+              }
+            ]
+          }
+        },
+        {
+          "name": "ccip_router_program",
+          "docs": [
+            "in by the client so a future CPI can target the configured router."
+          ]
+        }
+      ],
+      "args": [
+        {
+          "name": "provider_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "owner",
+          "type": "pubkey"
+        },
+        {
+          "name": "dest_chain_selector",
+          "type": "u64"
+        },
+        {
+          "name": "receiver",
+          "type": "bytes"
+        },
+        {
+          "name": "extra_args",
+          "type": "bytes"
+        }
+      ]
+    },
+    {
       "name": "init_staking",
       "docs": [
         "Initialise the `StakingConfig` singleton. Admin only (must match",
@@ -1733,6 +1853,19 @@
       ]
     },
     {
+      "name": "StakeDispatched",
+      "discriminator": [
+        210,
+        52,
+        51,
+        74,
+        16,
+        179,
+        162,
+        6
+      ]
+    },
+    {
       "name": "StakeMintSet",
       "discriminator": [
         64,
@@ -2146,6 +2279,47 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "StakeDispatched",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "owner",
+            "type": "pubkey"
+          },
+          {
+            "name": "amount",
+            "type": "u64"
+          },
+          {
+            "name": "dest_chain_selector",
+            "type": "u64"
+          },
+          {
+            "name": "receiver",
+            "type": "bytes"
+          },
+          {
+            "name": "payload",
+            "type": "bytes"
+          },
+          {
+            "name": "extra_args",
+            "type": "bytes"
           }
         ]
       }

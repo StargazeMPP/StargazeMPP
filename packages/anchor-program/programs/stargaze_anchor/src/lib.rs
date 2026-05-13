@@ -178,6 +178,66 @@ pub mod stargaze_anchor {
         Ok(())
     }
 
+    /// Dispatch a per-staker stake snapshot for `(provider_id, owner)` to the
+    /// Tempo `StargazeStakeMirror` receiver via Chainlink CCIP. The on-chain
+    /// `StakeAccount.amount` is the authoritative value being mirrored.
+    ///
+    /// Payload schema (matches `StargazeStakeMirror.ccipReceive`):
+    ///   `abi.encode(bytes32 providerId, address owner, uint256 amount)` —
+    ///   96 bytes total.
+    ///
+    /// Note: `owner` is the Solana staker pubkey truncated to the bottom 20
+    /// bytes to fit Solidity's 32-byte address slot; the Tempo mirror treats
+    /// it as a per-Solana-staker key, NOT an EVM address. The Tempo side
+    /// never needs to send a transaction from this address.
+    ///
+    /// CPI into the Chainlink router is wired in M4; for now the message is
+    /// emitted as a `StakeDispatched` event so the indexer can observe it.
+    pub fn dispatch_stake_to_tempo(
+        ctx: Context<DispatchStakeToTempo>,
+        provider_id: [u8; 32],
+        owner: Pubkey,
+        dest_chain_selector: u64,
+        receiver: Vec<u8>,
+        extra_args: Vec<u8>,
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.sender.key(),
+            ctx.accounts.staking_config.authority,
+            StargazeAnchorError::Unauthorized
+        );
+
+        let amount = ctx.accounts.stake_account.amount;
+
+        // ABI: bytes32 providerId || address owner (right-aligned in 32 bytes)
+        //   || uint256 amount (big-endian). 96 bytes total.
+        let mut payload = Vec::with_capacity(96);
+        payload.extend_from_slice(&provider_id);
+        // Solidity address is 20 bytes right-aligned in a 32-byte slot: 12
+        // leading zero bytes, then the bottom 20 bytes of the Solana pubkey.
+        payload.extend_from_slice(&[0u8; 12]);
+        let owner_bytes = owner.to_bytes();
+        payload.extend_from_slice(&owner_bytes[12..32]);
+        // uint256 amount as big-endian, left-padded with 24 zero bytes.
+        payload.extend_from_slice(&[0u8; 24]);
+        payload.extend_from_slice(&amount.to_be_bytes());
+
+        emit!(StakeDispatched {
+            provider_id,
+            owner,
+            amount,
+            dest_chain_selector,
+            receiver,
+            payload,
+            extra_args,
+        });
+
+        // M4: CPI to ctx.accounts.ccip_router_program goes here.
+        let _ = &ctx.accounts.ccip_router_program;
+
+        Ok(())
+    }
+
     /// Initialise the `StakingConfig` singleton. Admin only (must match
     /// the existing `Config.authority`). If `stake_mint == Pubkey::default()`
     /// the pool token account is not created — call `set_stake_mint` later
@@ -644,6 +704,22 @@ pub struct DispatchReputationToTempo<'info> {
 }
 
 #[derive(Accounts)]
+#[instruction(provider_id: [u8; 32], owner: Pubkey)]
+pub struct DispatchStakeToTempo<'info> {
+    pub sender: Signer<'info>,
+    #[account(seeds = [b"staking_config"], bump = staking_config.bump)]
+    pub staking_config: Account<'info, StakingConfig>,
+    #[account(
+        seeds = [b"stake", provider_id.as_ref(), owner.as_ref()],
+        bump = stake_account.bump
+    )]
+    pub stake_account: Account<'info, StakeAccount>,
+    /// CHECK: Chainlink CCIP Solana router program. Not yet invoked — passed
+    /// in by the client so a future CPI can target the configured router.
+    pub ccip_router_program: UncheckedAccount<'info>,
+}
+
+#[derive(Accounts)]
 pub struct InitStaking<'info> {
     #[account(mut)]
     pub authority: Signer<'info>,
@@ -962,6 +1038,17 @@ pub struct ReputationMirrored {
 pub struct CcipDispatched {
     pub provider_id: [u8; 32],
     pub score: u16,
+    pub dest_chain_selector: u64,
+    pub receiver: Vec<u8>,
+    pub payload: Vec<u8>,
+    pub extra_args: Vec<u8>,
+}
+
+#[event]
+pub struct StakeDispatched {
+    pub provider_id: [u8; 32],
+    pub owner: Pubkey,
+    pub amount: u64,
     pub dest_chain_selector: u64,
     pub receiver: Vec<u8>,
     pub payload: Vec<u8>,
