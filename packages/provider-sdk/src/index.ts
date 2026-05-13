@@ -6,6 +6,7 @@
 
 export { StargazeMppVerifier, type StargazeMppVerifierOptions } from './internal/verifier.js';
 export { recoverVoucherSigner } from './internal/voucher.js';
+export { parseX402Receipt, type X402ReceiptParserOptions } from './internal/x402-receipt.js';
 
 // Convenience re-exports so consumers only need one import.
 export type {
@@ -16,6 +17,7 @@ export type {
   VerifiedVoucher,
   VoucherDomain,
   VoucherMessage,
+  X402Receipt,
 } from '@stargazempp/shared';
 
 export {
