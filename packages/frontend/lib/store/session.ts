@@ -37,9 +37,9 @@ const INITIAL = {
 } satisfies Omit<SessionStoreState, "open" | "recordQuery" | "close" | "reset">;
 
 /**
- * Session state for the StargazeMPP playground / dashboard. Mirrors the
- * shape described in the frontend build spec §6.4 but extended to track
- * `spendingLimit` so the cap matches the EIP-712 voucher schema.
+ * Session state for the StargazeMPP playground / dashboard. Tracks the
+ * active sessionId, rail, escrow balance, and a `spendingLimit` cap that
+ * matches the Solana voucher schema.
  *
  * Persisted to `sessionStorage` so a refresh keeps the active session,
  * but a new tab starts fresh — sessions are short-lived by design.

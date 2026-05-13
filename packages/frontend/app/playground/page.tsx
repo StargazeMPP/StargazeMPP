@@ -16,12 +16,12 @@ export default function PlaygroundPage() {
           Build <em style={{ color: "var(--accent)" }}>real queries</em>, sign real vouchers.
         </>
       }
-      description="Three-panel workspace: provider selector + schema-driven request builder on the left, live session monitor (escrow / cumulative / nonce) in the middle, pretty-printed response viewer on the right. Voucher signing is wired through `lib/voucher/sign.ts`."
+      description="Three-panel workspace: provider selector + schema-driven request builder on the left, live session monitor (escrow / cumulative / nonce) in the middle, pretty-printed response viewer on the right."
       roadmap={[
         "Wallet-gated entry — Phantom / Solflare / WalletConnect.",
         "Zod-schema-derived form generator from each provider's `requestSchema`.",
         "Real `executeQuery` calls direct to the gateway (skipping Next API).",
-        "Auto-incrementing cumulative voucher signing with `useVoucherSigner()`.",
+        "Auto-incrementing cumulative voucher signing on the Solana voucher schema.",
         "Top-up flow when escrow falls below the request cost.",
       ]}
       cta={{ label: "Use the dashboard playground tab today", href: "/dashboard#playground" }}
