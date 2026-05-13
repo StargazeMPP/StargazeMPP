@@ -24,11 +24,13 @@
     "compile:aggregate": "circom circuits/aggregate_sum.circom --r1cs --wasm --sym -l node_modules -l ../../node_modules -o build/",
     "setup:aggregate-dev": "node scripts/setup-dev.mjs aggregate_sum",
     "verifier:aggregate": "snarkjs zkey export solidityverifier build/aggregate_sum_final.zkey build/AggregateSumVerifier.sol",
-    "all:aggregate-dev": "npm run compile:aggregate && npm run setup:aggregate-dev && npm run verifier:aggregate",
+    "all:aggregate-dev": "npm run compile:aggregate && npm run setup:aggregate-dev && npm run verifier:aggregate && npm run publish-verifiers",
     "compile:geofence": "circom circuits/geofence.circom --r1cs --wasm --sym -l node_modules -l ../../node_modules -o build/",
     "setup:geofence-dev": "node scripts/setup-dev.mjs geofence",
     "verifier:geofence": "snarkjs zkey export solidityverifier build/geofence_final.zkey build/GeofenceVerifier.sol",
-    "all:geofence-dev": "npm run compile:geofence && npm run setup:geofence-dev && npm run verifier:geofence"
+    "all:geofence-dev": "npm run compile:geofence && npm run setup:geofence-dev && npm run verifier:geofence && npm run publish-verifiers",
+    "publish-verifiers": "node scripts/publish-verifiers.mjs",
+    "generate-test-vectors": "node scripts/generate-test-vectors.mjs"
   },
   "dependencies": {
     "@stargazempp/shared": "*",

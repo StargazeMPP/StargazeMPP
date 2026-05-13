@@ -1,0 +1,37 @@
+{
+  "circuit": "aggregate_sum",
+  "input": {
+    "values": [
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+      "6",
+      "7",
+      "8"
+    ],
+    "claimedSum": "36"
+  },
+  "a": [
+    "0x1ad9545f0548639b229376a74c3371eb27858ebb3133816ec3f9613cb5deeae1",
+    "0x0a4b4d0b5af89d7ea51b9c468bb1a9fa20db16b315f33fe0f4bb6ede542befd4"
+  ],
+  "b": [
+    [
+      "0x00f62fdfa243726fe1d049770ec6fa6f75d2f8ce8a213373b5d271ece0e8c438",
+      "0x153e75ffc8e011865e0b7a73a4dd9daa1ff8716854f658ec8a79191fa5c7b146"
+    ],
+    [
+      "0x043ba0f79c29f542add4a131e690038e8db957f13fdb235eedae5780b242e31e",
+      "0x2706cc993753fc09a578a85c1d1a4742e07ffac80588b3ebb0c71582a301eea0"
+    ]
+  ],
+  "c": [
+    "0x1f59a23d361c64e9322c96d6903905a9fff46b5791d8890ec6e54cfadb0f7228",
+    "0x2e3d2c6755d4d2fa24b4bec9a1d5cdd633182885b377e0b5022adaad2ad98b63"
+  ],
+  "pubSignals": [
+    "0x0000000000000000000000000000000000000000000000000000000000000024"
+  ]
+}
