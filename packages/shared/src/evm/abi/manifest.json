@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-05-12T23:26:58.957Z",
+  "generatedAt": "2026-05-13T07:19:03.115Z",
   "contracts": {
     "GAZEToken": {
       "file": "./GAZEToken.json",
@@ -7,7 +7,7 @@
     },
     "BurnController": {
       "file": "./BurnController.json",
-      "bytecodeHash": "cac167d3c77110900030208f76aafc3094a504e60f0207327165c1be62057fed"
+      "bytecodeHash": "5a8624f6bba772ff6003c693c74baa3273ccc46bc1890d4733fae9c2fa5d3200"
     },
     "StargazeEscrow": {
       "file": "./StargazeEscrow.json",
@@ -15,7 +15,7 @@
     },
     "StargazeRegistry": {
       "file": "./StargazeRegistry.json",
-      "bytecodeHash": "d7c9ab3ca97744396214fc7efbfad3462ae03fb8a3aaffc73b8712e269879dcd"
+      "bytecodeHash": "7302f09dd41608c00eeb4f29e502100e280a93c035f6cfc250ff443ee018b301"
     },
     "PrivacyVaultRegistry": {
       "file": "./PrivacyVaultRegistry.json",

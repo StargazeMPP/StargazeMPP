@@ -75,6 +75,16 @@ contract BurnController is AccessControl {
         emit ReputationVote(msg.sender, REPUTATION_VOTE_BURN_AMOUNT);
     }
 
+    /// @notice Registry-delegated reputation-vote burn. The voter must have
+    /// approved this contract for `REPUTATION_VOTE_BURN_AMOUNT` $GAZE; the
+    /// registry forwards the call so the voter's allowance is debited rather
+    /// than the registry's (which holds none).
+    function burnForReputationVoteFrom(address voter) external onlyRole(REGISTRY_ROLE) {
+        gaze.burnFrom(voter, REPUTATION_VOTE_BURN_AMOUNT);
+        totalBurned += REPUTATION_VOTE_BURN_AMOUNT;
+        emit ReputationVote(voter, REPUTATION_VOTE_BURN_AMOUNT);
+    }
+
     /// @notice Hook called by GAZEToken on every non-mint, non-burn transfer.
     /// Currently telemetry-only — kept here so the GAZE token's transfer-hook
     /// ABI is stable across future controller versions.

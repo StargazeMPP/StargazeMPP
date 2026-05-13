@@ -31,6 +31,8 @@ contract StargazeRegistryTest is Test {
     event StakeIncreased(bytes32 indexed providerId, uint256 added, uint256 newTotal);
     event ProviderSlashed(bytes32 indexed providerId, uint256 amount, uint256 remaining, string reason);
     event ReputationUpdated(bytes32 indexed providerId, uint256 score);
+    event ReputationVoted(bytes32 indexed providerId, address indexed voter, bool accurate);
+    event ReputationVote(address indexed voter, uint256 amount);
 
     function setUp() public {
         gaze = new GAZEToken(INITIAL_SUPPLY, admin);
@@ -39,6 +41,7 @@ contract StargazeRegistryTest is Test {
 
         vm.startPrank(admin);
         gaze.setBurnController(address(bc));
+        bc.grantRole(bc.REGISTRY_ROLE(), address(registry));
         gaze.transfer(provider, 10_000e18);
         gaze.transfer(voter, 1_000e18);
         vm.stopPrank();
@@ -251,19 +254,64 @@ contract StargazeRegistryTest is Test {
         registry.setReputationScore(keccak256("ghost"), 600);
     }
 
-    function test_CastReputationVote_KnownReverts() public {
-        // FIXME: requires `burnForReputationVoteFrom(address voter)` on BurnController gated by REGISTRY_ROLE.
+    function test_CastReputationVote_HappyPath() public {
         _register(provider, PROVIDER_ID, registry.MIN_STAKE());
 
+        uint256 burnAmount = bc.REPUTATION_VOTE_BURN_AMOUNT();
+        uint256 voterBefore = gaze.balanceOf(voter);
+        uint256 supplyBefore = gaze.totalSupply();
+        uint256 burnedBefore = bc.totalBurned();
+
         vm.prank(voter);
-        vm.expectRevert();
+        gaze.approve(address(bc), burnAmount);
+
+        // Inner burn event from BurnController.
+        vm.expectEmit(true, false, false, true, address(bc));
+        emit ReputationVote(voter, burnAmount);
+        // Outer vote event from the registry.
+        vm.expectEmit(true, true, false, true, address(registry));
+        emit ReputationVoted(PROVIDER_ID, voter, true);
+
+        vm.prank(voter);
         registry.castReputationVote(PROVIDER_ID, true);
+
+        assertEq(gaze.balanceOf(voter), voterBefore - burnAmount, "voter debited 1 GAZE");
+        assertEq(gaze.totalSupply(), supplyBefore - burnAmount, "supply reduced by burn");
+        assertEq(bc.totalBurned(), burnedBefore + burnAmount, "totalBurned accumulates");
     }
 
     function test_CastReputationVote_RevertsWhenNotRegistered() public {
         vm.prank(voter);
         vm.expectRevert(StargazeRegistry.NotRegistered.selector);
         registry.castReputationVote(keccak256("ghost"), true);
+    }
+
+    function test_CastReputationVote_RevertsWithoutVoterApproval() public {
+        _register(provider, PROVIDER_ID, registry.MIN_STAKE());
+
+        vm.prank(voter);
+        vm.expectRevert(); // ERC20InsufficientAllowance on the voter
+        registry.castReputationVote(PROVIDER_ID, true);
+    }
+
+    function test_CastReputationVote_RevertsWhenRegistryLacksRole() public {
+        _register(provider, PROVIDER_ID, registry.MIN_STAKE());
+
+        // Revoke the registry's REGISTRY_ROLE so the BurnController call is rejected.
+        bytes32 registryRole = bc.REGISTRY_ROLE();
+        vm.prank(admin);
+        bc.revokeRole(registryRole, address(registry));
+
+        vm.prank(voter);
+        gaze.approve(address(bc), bc.REPUTATION_VOTE_BURN_AMOUNT());
+
+        vm.prank(voter);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                IAccessControl.AccessControlUnauthorizedAccount.selector, address(registry), registryRole
+            )
+        );
+        registry.castReputationVote(PROVIDER_ID, true);
     }
 
     function test_IsVerified_TransitionAcrossThresholds() public {

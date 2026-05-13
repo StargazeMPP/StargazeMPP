@@ -98,6 +98,19 @@
     },
     {
       "type": "function",
+      "name": "burnForReputationVoteFrom",
+      "inputs": [
+        {
+          "name": "voter",
+          "type": "address",
+          "internalType": "address"
+        }
+      ],
+      "outputs": [],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
       "name": "gaze",
       "inputs": [],
       "outputs": [
@@ -527,6 +540,6 @@
       "inputs": []
     }
   ],
-  "bytecodeHash": "cac167d3c77110900030208f76aafc3094a504e60f0207327165c1be62057fed",
-  "deployedBytecodeHash": "e8d42d4bde93dafb209dd0ef61883656403aaa9583f310169cdb09f11e629402"
+  "bytecodeHash": "5a8624f6bba772ff6003c693c74baa3273ccc46bc1890d4733fae9c2fa5d3200",
+  "deployedBytecodeHash": "c5dbdc3c8888a795546375e2d45fb1f343257585b2fe68ecee6078a5c2cd67f2"
 }

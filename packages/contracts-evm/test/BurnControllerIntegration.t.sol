@@ -24,6 +24,7 @@ contract BurnControllerIntegrationTest is Test {
 
     event RoutingFeeProcessed(address indexed payer, uint256 burned, uint256 toStakers);
     event TransferObserved(address indexed from, address indexed to, uint256 amount);
+    event ReputationVote(address indexed voter, uint256 amount);
 
     function setUp() public {
         gaze = new GAZEToken(INITIAL_SUPPLY, admin);
@@ -133,6 +134,42 @@ contract BurnControllerIntegrationTest is Test {
         vm.prank(router);
         vm.expectRevert();
         bc.processRoutingFee(50e18);
+    }
+
+    function test_BurnForReputationVoteFrom_OnlyRegistryRole() public {
+        address registry = address(0xBEEF); // stand-in registry caller
+        bytes32 registryRole = bc.REGISTRY_ROLE();
+
+        // Voter funds and approves the controller for the vote burn.
+        uint256 burnAmount = bc.REPUTATION_VOTE_BURN_AMOUNT();
+        vm.prank(admin);
+        gaze.transfer(staker, burnAmount);
+        vm.prank(staker);
+        gaze.approve(address(bc), burnAmount);
+
+        // Without the role: revert.
+        vm.prank(registry);
+        vm.expectRevert(
+            abi.encodeWithSelector(IAccessControl.AccessControlUnauthorizedAccount.selector, registry, registryRole)
+        );
+        bc.burnForReputationVoteFrom(staker);
+
+        // Grant the role and retry.
+        vm.prank(admin);
+        bc.grantRole(registryRole, registry);
+
+        uint256 supplyBefore = gaze.totalSupply();
+        uint256 burnedBefore = bc.totalBurned();
+        uint256 voterBefore = gaze.balanceOf(staker);
+
+        vm.expectEmit(true, false, false, true, address(bc));
+        emit ReputationVote(staker, burnAmount);
+        vm.prank(registry);
+        bc.burnForReputationVoteFrom(staker);
+
+        assertEq(gaze.balanceOf(staker), voterBefore - burnAmount, "voter debited");
+        assertEq(gaze.totalSupply(), supplyBefore - burnAmount, "supply reduced");
+        assertEq(bc.totalBurned(), burnedBefore + burnAmount, "totalBurned accumulates");
     }
 
     function testFuzz_AlwaysSumsToFee(uint96 rawFee) public {
