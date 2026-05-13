@@ -2,3 +2,4 @@ export * from './voucher.js';
 export * from './verifier.js';
 export * from './deposit-solana.js';
 export * from './x402-receipt.js';
+export * from './vault-proof.js';
