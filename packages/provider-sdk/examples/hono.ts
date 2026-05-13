@@ -10,8 +10,8 @@ import { serve } from '@hono/node-server';
 import { StargazeMppVerifier, type SignedVoucher } from '@stargazempp/provider-sdk';
 
 const verifier = new StargazeMppVerifier({
-  tempoRpcUrl: process.env.TEMPO_RPC_URL,
-  tempoPathUsdAddress: process.env.TEMPO_PATHUSD_ADDRESS as `0x${string}` | undefined,
+  solanaRpcUrl: process.env.SOLANA_RPC_URL,
+  solanaUsdcMint: process.env.SOLANA_USDC_MINT,
 });
 
 const app = new Hono();
@@ -22,17 +22,11 @@ app.post('/api/intel', async (c) => {
   if (!voucher) return c.json({ error: 'missing voucher' }, 400);
 
   try {
-    const { signer, message } = await verifier.verifyVoucher(voucher);
-    if (signer.toLowerCase() !== message.agentWallet.toLowerCase()) {
-      return c.json({ error: 'voucher signer mismatch' }, 402);
-    }
-    if (message.expiry < BigInt(Math.floor(Date.now() / 1000))) {
-      return c.json({ error: 'voucher expired' }, 402);
-    }
+    const verified = await verifier.verifyVoucher(voucher);
     return c.json({
       hotTake: 'BTC reclaims $200k by Q3.',
-      cumulativeAmount: message.cumulativeAmount.toString(),
-      sessionId: message.sessionId,
+      cumulativeAmount: verified.cumulativeAmount.toString(),
+      nonce: verified.nonce.toString(),
     });
   } catch (err) {
     return c.json({ error: (err as Error).message }, 402);

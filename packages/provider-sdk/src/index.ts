@@ -15,15 +15,12 @@ export type {
   SignedVoucher,
   VerifiedDeposit,
   VerifiedVoucher,
-  VoucherDomain,
   VoucherMessage,
   X402Receipt,
 } from '@stargazempp/shared';
 
 export {
-  EIP712_VOUCHER_DOMAIN_NAME,
-  EIP712_VOUCHER_DOMAIN_VERSION,
-  VOUCHER_PRIMARY_TYPE,
-  VOUCHER_TYPES,
-  buildVoucherDomain,
+  VOUCHER_DOMAIN_TAG,
+  VOUCHER_MESSAGE_LEN,
+  buildVoucherMessage,
 } from '@stargazempp/shared';

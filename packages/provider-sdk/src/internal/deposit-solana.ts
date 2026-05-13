@@ -135,7 +135,6 @@ export class SolanaDepositVerifier {
     }
     return {
       txHash: signature,
-      rail: 'solana',
       agentWallet: match.agentWallet,
       amount: match.amount,
     };

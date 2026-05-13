@@ -3,16 +3,15 @@
 // Install: `npm i express @types/express tsx`
 // Run:     `tsx examples/express.ts`
 //
-// The agent POSTs `{ voucher }` where `voucher` is a `SignedVoucher` issued
-// by their wallet via `signTypedData(VOUCHER_TYPES, ...)`. We recover the
-// signer, check it matches the declared `agentWallet`, gate on expiry, and
-// only then serve the protected payload.
+// The agent POSTs `{ voucher }` where `voucher` is a `SignedVoucher` — a
+// Solana Ed25519 signature over the 133-byte StargazeMPP voucher message.
+// We verify the signature and amount, then serve the protected payload.
 import express from 'express';
 import { StargazeMppVerifier, type SignedVoucher } from '@stargazempp/provider-sdk';
 
 const verifier = new StargazeMppVerifier({
-  tempoRpcUrl: process.env.TEMPO_RPC_URL,
-  tempoPathUsdAddress: process.env.TEMPO_PATHUSD_ADDRESS as `0x${string}` | undefined,
+  solanaRpcUrl: process.env.SOLANA_RPC_URL,
+  solanaUsdcMint: process.env.SOLANA_USDC_MINT,
 });
 
 const app = express();
@@ -23,17 +22,11 @@ app.post('/api/intel', async (req, res) => {
   if (!voucher) return res.status(400).json({ error: 'missing voucher' });
 
   try {
-    const { signer, message } = await verifier.verifyVoucher(voucher);
-    if (signer.toLowerCase() !== message.agentWallet.toLowerCase()) {
-      return res.status(402).json({ error: 'voucher signer mismatch' });
-    }
-    if (message.expiry < BigInt(Math.floor(Date.now() / 1000))) {
-      return res.status(402).json({ error: 'voucher expired' });
-    }
+    const verified = await verifier.verifyVoucher(voucher);
     return res.json({
       hotTake: 'BTC reclaims $200k by Q3.',
-      cumulativeAmount: message.cumulativeAmount.toString(),
-      sessionId: message.sessionId,
+      cumulativeAmount: verified.cumulativeAmount.toString(),
+      nonce: verified.nonce.toString(),
     });
   } catch (err) {
     return res.status(402).json({ error: (err as Error).message });
