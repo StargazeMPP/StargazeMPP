@@ -1,6 +1,25 @@
 use anchor_lang::prelude::*;
+use anchor_spl::associated_token::AssociatedToken;
+use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 
 declare_id!("m6P7kwvXoET9n5B8DFGwwLEozXdv6jBJPdbMiW1TH1R");
+
+/// Minimum stake required for a Solana-native provider to be considered active
+/// (50 GAZE at 6 decimals).
+#[constant]
+pub const MIN_STAKE_DEFAULT: u64 = 50_000_000;
+/// Stake threshold for a provider to be considered "verified"
+/// (500 GAZE at 6 decimals).
+#[constant]
+pub const VERIFIED_STAKE_DEFAULT: u64 = 500_000_000;
+/// Default unstake cooldown window (7 days).
+#[constant]
+pub const COOLDOWN_DEFAULT_SECS: i64 = 7 * 86_400;
+
+/// Fixed burn destination: the canonical Solana incinerator address. Tokens
+/// sent here are unrecoverable.
+pub const BURN_DESTINATION: Pubkey =
+    anchor_lang::solana_program::pubkey!("1nc1nerator11111111111111111111111111111111");
 
 /// StargazeAnchor — Solana-side mirror of the Tempo `StargazeRegistry`.
 ///
@@ -153,6 +172,276 @@ pub mod stargaze_anchor {
 
         Ok(())
     }
+
+    /// Initialise the `StakingConfig` singleton. Admin only (must match
+    /// the existing `Config.authority`). If `stake_mint == Pubkey::default()`
+    /// the pool token account is not created — call `set_stake_mint` later
+    /// once the pump.fun launch has produced the real mint.
+    pub fn init_staking(
+        ctx: Context<InitStaking>,
+        stake_mint: Pubkey,
+        min_stake: u64,
+        verified_stake: u64,
+        cooldown_secs: i64,
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.authority.key(),
+            ctx.accounts.config.authority,
+            StargazeAnchorError::Unauthorized
+        );
+        let staking = &mut ctx.accounts.staking_config;
+        staking.authority = ctx.accounts.config.authority;
+        staking.stake_mint = stake_mint;
+        staking.min_stake = min_stake;
+        staking.verified_stake = verified_stake;
+        staking.cooldown_secs = cooldown_secs;
+        staking.bump = ctx.bumps.staking_config;
+
+        emit!(StakingInitialized {
+            stake_mint,
+            min_stake,
+            verified_stake,
+            cooldown_secs,
+        });
+        Ok(())
+    }
+
+    /// One-shot setter for the stake mint, used when staking is initialised
+    /// before the pump.fun launch has produced the SPL mint. Also creates the
+    /// pool token account on first call. Subsequent calls are rejected unless
+    /// the mint is still `Pubkey::default()` on entry.
+    pub fn set_stake_mint(ctx: Context<SetStakeMint>, new_mint: Pubkey) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.authority.key(),
+            ctx.accounts.staking_config.authority,
+            StargazeAnchorError::Unauthorized
+        );
+        require!(
+            ctx.accounts.staking_config.stake_mint == Pubkey::default(),
+            StargazeAnchorError::StakeMintAlreadySet
+        );
+        require!(
+            new_mint != Pubkey::default(),
+            StargazeAnchorError::StakeMintUnset
+        );
+        require_keys_eq!(
+            ctx.accounts.stake_mint.key(),
+            new_mint,
+            StargazeAnchorError::StakeMintUnset
+        );
+        require_keys_eq!(
+            ctx.accounts.pool_token_account.mint,
+            new_mint,
+            StargazeAnchorError::StakeMintUnset
+        );
+        require_keys_eq!(
+            ctx.accounts.pool_token_account.owner,
+            ctx.accounts.stake_pool_authority.key(),
+            StargazeAnchorError::Unauthorized
+        );
+
+        ctx.accounts.staking_config.stake_mint = new_mint;
+
+        emit!(StakeMintSet { stake_mint: new_mint });
+        Ok(())
+    }
+
+    /// Stake `amount` base units of $GAZE against `provider_id`. The caller
+    /// is the staker; tokens move from `staker_ata` into the pool. The
+    /// per-staker `StakeAccount` is created on first stake.
+    pub fn stake(
+        ctx: Context<Stake>,
+        provider_id: [u8; 32],
+        amount: u64,
+    ) -> Result<()> {
+        require!(amount > 0, StargazeAnchorError::StakeAmountZero);
+        require!(
+            ctx.accounts.staking_config.stake_mint != Pubkey::default(),
+            StargazeAnchorError::StakeMintUnset
+        );
+
+        let stake_acct = &mut ctx.accounts.stake_account;
+        if stake_acct.owner == Pubkey::default() {
+            stake_acct.provider_id = provider_id;
+            stake_acct.owner = ctx.accounts.staker.key();
+            stake_acct.bump = ctx.bumps.stake_account;
+        }
+
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.staker_ata.to_account_info(),
+            to: ctx.accounts.pool_token_account.to_account_info(),
+            authority: ctx.accounts.staker.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
+        token::transfer(cpi_ctx, amount)?;
+
+        stake_acct.amount = stake_acct
+            .amount
+            .checked_add(amount)
+            .ok_or(StargazeAnchorError::InsufficientStake)?;
+
+        emit!(Staked {
+            provider_id,
+            owner: stake_acct.owner,
+            amount,
+            total: stake_acct.amount,
+        });
+        Ok(())
+    }
+
+    /// Queue `amount` for unstake. The amount remains in the pool until
+    /// the cooldown expires and `claim_unstake` is called. Multiple
+    /// consecutive requests accumulate into `cooldown_amount` and reset the
+    /// cooldown clock to the latest call.
+    pub fn request_unstake(
+        ctx: Context<MutateStake>,
+        provider_id: [u8; 32],
+        amount: u64,
+    ) -> Result<()> {
+        require!(amount > 0, StargazeAnchorError::StakeAmountZero);
+        let stake_acct = &mut ctx.accounts.stake_account;
+        let available = stake_acct
+            .amount
+            .checked_sub(stake_acct.cooldown_amount)
+            .ok_or(StargazeAnchorError::InsufficientStake)?;
+        require!(amount <= available, StargazeAnchorError::InsufficientStake);
+
+        let now = Clock::get()?.unix_timestamp;
+        stake_acct.cooldown_amount = stake_acct
+            .cooldown_amount
+            .checked_add(amount)
+            .ok_or(StargazeAnchorError::InsufficientStake)?;
+        // Reset the cooldown clock to the latest request — simplest model.
+        stake_acct.cooldown_start_ts = now;
+
+        let cooldown_until = now
+            .checked_add(ctx.accounts.staking_config.cooldown_secs)
+            .unwrap_or(i64::MAX);
+
+        emit!(UnstakeRequested {
+            provider_id,
+            owner: stake_acct.owner,
+            amount,
+            cooldown_until,
+        });
+        let _ = provider_id;
+        Ok(())
+    }
+
+    /// Claim queued unstake amount once the cooldown has elapsed. Transfers
+    /// `cooldown_amount` from the pool back to the staker and clears the
+    /// cooldown state.
+    pub fn claim_unstake(
+        ctx: Context<ClaimUnstake>,
+        provider_id: [u8; 32],
+    ) -> Result<()> {
+        let cooldown_amount = ctx.accounts.stake_account.cooldown_amount;
+        require!(
+            cooldown_amount > 0,
+            StargazeAnchorError::NoCooldownInProgress
+        );
+        let now = Clock::get()?.unix_timestamp;
+        let elapsed = now.saturating_sub(ctx.accounts.stake_account.cooldown_start_ts);
+        require!(
+            elapsed >= ctx.accounts.staking_config.cooldown_secs,
+            StargazeAnchorError::CooldownActive
+        );
+
+        let bump = ctx.bumps.stake_pool_authority;
+        let seeds: &[&[u8]] = &[b"stake_pool_authority", &[bump]];
+        let signer_seeds = &[seeds];
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.pool_token_account.to_account_info(),
+            to: ctx.accounts.staker_ata.to_account_info(),
+            authority: ctx.accounts.stake_pool_authority.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_accounts,
+            signer_seeds,
+        );
+        token::transfer(cpi_ctx, cooldown_amount)?;
+
+        let stake_acct = &mut ctx.accounts.stake_account;
+        stake_acct.amount = stake_acct
+            .amount
+            .checked_sub(cooldown_amount)
+            .ok_or(StargazeAnchorError::InsufficientStake)?;
+        stake_acct.cooldown_amount = 0;
+        stake_acct.cooldown_start_ts = 0;
+
+        emit!(Unstaked {
+            provider_id,
+            owner: stake_acct.owner,
+            amount: cooldown_amount,
+        });
+        Ok(())
+    }
+
+    /// Admin-only slash. Transfers up to `amount` base units from the pool
+    /// to the canonical Solana incinerator burn address. The amount is
+    /// capped at the target's currently-available (non-cooldown) stake to
+    /// keep accounting consistent.
+    pub fn slash(
+        ctx: Context<Slash>,
+        provider_id: [u8; 32],
+        staker: Pubkey,
+        amount: u64,
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.authority.key(),
+            ctx.accounts.staking_config.authority,
+            StargazeAnchorError::Unauthorized
+        );
+        require!(amount > 0, StargazeAnchorError::StakeAmountZero);
+        require_keys_eq!(
+            ctx.accounts.stake_account.owner,
+            staker,
+            StargazeAnchorError::Unauthorized
+        );
+        require_keys_eq!(
+            ctx.accounts.burn_destination_ata.owner,
+            BURN_DESTINATION,
+            StargazeAnchorError::Unauthorized
+        );
+
+        let available = ctx
+            .accounts
+            .stake_account
+            .amount
+            .saturating_sub(ctx.accounts.stake_account.cooldown_amount);
+        let to_slash = amount.min(available);
+        require!(to_slash > 0, StargazeAnchorError::InsufficientStake);
+
+        let bump = ctx.bumps.stake_pool_authority;
+        let seeds: &[&[u8]] = &[b"stake_pool_authority", &[bump]];
+        let signer_seeds = &[seeds];
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.pool_token_account.to_account_info(),
+            to: ctx.accounts.burn_destination_ata.to_account_info(),
+            authority: ctx.accounts.stake_pool_authority.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new_with_signer(
+            ctx.accounts.token_program.to_account_info(),
+            cpi_accounts,
+            signer_seeds,
+        );
+        token::transfer(cpi_ctx, to_slash)?;
+
+        let stake_acct = &mut ctx.accounts.stake_account;
+        stake_acct.amount = stake_acct
+            .amount
+            .checked_sub(to_slash)
+            .ok_or(StargazeAnchorError::InsufficientStake)?;
+
+        emit!(Slashed {
+            provider_id,
+            owner: staker,
+            amount: to_slash,
+            destination: BURN_DESTINATION,
+        });
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -249,11 +538,202 @@ pub struct DispatchReputationToTempo<'info> {
     pub ccip_router_program: UncheckedAccount<'info>,
 }
 
+#[derive(Accounts)]
+pub struct InitStaking<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    #[account(
+        init,
+        payer = authority,
+        space = 8 + StakingConfig::INIT_SPACE,
+        seeds = [b"staking_config"],
+        bump
+    )]
+    pub staking_config: Account<'info, StakingConfig>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+pub struct SetStakeMint<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"staking_config"],
+        bump = staking_config.bump
+    )]
+    pub staking_config: Account<'info, StakingConfig>,
+    pub stake_mint: Account<'info, Mint>,
+    /// CHECK: PDA signer for the pool token account. Address is verified
+    /// via the seeds constraint.
+    #[account(seeds = [b"stake_pool_authority"], bump)]
+    pub stake_pool_authority: UncheckedAccount<'info>,
+    #[account(
+        init_if_needed,
+        payer = authority,
+        associated_token::mint = stake_mint,
+        associated_token::authority = stake_pool_authority,
+    )]
+    pub pool_token_account: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32])]
+pub struct Stake<'info> {
+    #[account(mut)]
+    pub staker: Signer<'info>,
+    #[account(seeds = [b"staking_config"], bump = staking_config.bump)]
+    pub staking_config: Account<'info, StakingConfig>,
+    #[account(
+        init_if_needed,
+        payer = staker,
+        space = 8 + StakeAccount::INIT_SPACE,
+        seeds = [b"stake", provider_id.as_ref(), staker.key().as_ref()],
+        bump
+    )]
+    pub stake_account: Account<'info, StakeAccount>,
+    #[account(
+        mut,
+        constraint = stake_mint.key() == staking_config.stake_mint @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub stake_mint: Account<'info, Mint>,
+    #[account(
+        mut,
+        constraint = staker_ata.owner == staker.key() @ StargazeAnchorError::Unauthorized,
+        constraint = staker_ata.mint == stake_mint.key() @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub staker_ata: Account<'info, TokenAccount>,
+    /// CHECK: PDA signer for the pool token account. Address is verified
+    /// via the seeds constraint.
+    #[account(seeds = [b"stake_pool_authority"], bump)]
+    pub stake_pool_authority: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        constraint = pool_token_account.owner == stake_pool_authority.key() @ StargazeAnchorError::Unauthorized,
+        constraint = pool_token_account.mint == stake_mint.key() @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub pool_token_account: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32])]
+pub struct MutateStake<'info> {
+    pub staker: Signer<'info>,
+    #[account(seeds = [b"staking_config"], bump = staking_config.bump)]
+    pub staking_config: Account<'info, StakingConfig>,
+    #[account(
+        mut,
+        seeds = [b"stake", provider_id.as_ref(), staker.key().as_ref()],
+        bump = stake_account.bump,
+        constraint = stake_account.owner == staker.key() @ StargazeAnchorError::Unauthorized
+    )]
+    pub stake_account: Account<'info, StakeAccount>,
+}
+
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32])]
+pub struct ClaimUnstake<'info> {
+    #[account(mut)]
+    pub staker: Signer<'info>,
+    #[account(seeds = [b"staking_config"], bump = staking_config.bump)]
+    pub staking_config: Account<'info, StakingConfig>,
+    #[account(
+        mut,
+        seeds = [b"stake", provider_id.as_ref(), staker.key().as_ref()],
+        bump = stake_account.bump,
+        constraint = stake_account.owner == staker.key() @ StargazeAnchorError::Unauthorized
+    )]
+    pub stake_account: Account<'info, StakeAccount>,
+    #[account(
+        constraint = stake_mint.key() == staking_config.stake_mint @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub stake_mint: Account<'info, Mint>,
+    #[account(
+        mut,
+        constraint = staker_ata.owner == staker.key() @ StargazeAnchorError::Unauthorized,
+        constraint = staker_ata.mint == stake_mint.key() @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub staker_ata: Account<'info, TokenAccount>,
+    /// CHECK: PDA signer for the pool token account. Address is verified
+    /// via the seeds constraint.
+    #[account(seeds = [b"stake_pool_authority"], bump)]
+    pub stake_pool_authority: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        constraint = pool_token_account.owner == stake_pool_authority.key() @ StargazeAnchorError::Unauthorized,
+        constraint = pool_token_account.mint == stake_mint.key() @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub pool_token_account: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32], staker: Pubkey)]
+pub struct Slash<'info> {
+    pub authority: Signer<'info>,
+    #[account(seeds = [b"staking_config"], bump = staking_config.bump)]
+    pub staking_config: Account<'info, StakingConfig>,
+    #[account(
+        mut,
+        seeds = [b"stake", provider_id.as_ref(), staker.as_ref()],
+        bump = stake_account.bump
+    )]
+    pub stake_account: Account<'info, StakeAccount>,
+    #[account(
+        constraint = stake_mint.key() == staking_config.stake_mint @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub stake_mint: Account<'info, Mint>,
+    /// CHECK: PDA signer for the pool token account.
+    #[account(seeds = [b"stake_pool_authority"], bump)]
+    pub stake_pool_authority: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        constraint = pool_token_account.owner == stake_pool_authority.key() @ StargazeAnchorError::Unauthorized,
+        constraint = pool_token_account.mint == stake_mint.key() @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub pool_token_account: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        constraint = burn_destination_ata.mint == stake_mint.key() @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub burn_destination_ata: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Config {
     pub authority: Pubkey,
     pub provider_count: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct StakingConfig {
+    pub authority: Pubkey,
+    pub stake_mint: Pubkey,
+    pub min_stake: u64,
+    pub verified_stake: u64,
+    pub cooldown_secs: i64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct StakeAccount {
+    pub provider_id: [u8; 32],
+    pub owner: Pubkey,
+    pub amount: u64,
+    pub cooldown_amount: u64,
+    pub cooldown_start_ts: i64,
     pub bump: u8,
 }
 
@@ -320,10 +800,66 @@ pub struct CcipDispatched {
     pub extra_args: Vec<u8>,
 }
 
+#[event]
+pub struct Staked {
+    pub provider_id: [u8; 32],
+    pub owner: Pubkey,
+    pub amount: u64,
+    pub total: u64,
+}
+
+#[event]
+pub struct UnstakeRequested {
+    pub provider_id: [u8; 32],
+    pub owner: Pubkey,
+    pub amount: u64,
+    pub cooldown_until: i64,
+}
+
+#[event]
+pub struct Unstaked {
+    pub provider_id: [u8; 32],
+    pub owner: Pubkey,
+    pub amount: u64,
+}
+
+#[event]
+pub struct Slashed {
+    pub provider_id: [u8; 32],
+    pub owner: Pubkey,
+    pub amount: u64,
+    pub destination: Pubkey,
+}
+
+#[event]
+pub struct StakingInitialized {
+    pub stake_mint: Pubkey,
+    pub min_stake: u64,
+    pub verified_stake: u64,
+    pub cooldown_secs: i64,
+}
+
+#[event]
+pub struct StakeMintSet {
+    pub stake_mint: Pubkey,
+}
+
 #[error_code]
 pub enum StargazeAnchorError {
     #[msg("Reputation score must be between 0 and 1000.")]
     ScoreOutOfRange,
     #[msg("Caller is not authorised for this instruction.")]
     Unauthorized,
+    #[msg("Stake amount must be greater than zero.")]
+    StakeAmountZero,
+    #[msg("Stake mint has not been configured yet.")]
+    StakeMintUnset,
+    #[msg("Stake mint is already configured; one-shot setter rejected.")]
+    StakeMintAlreadySet,
+    #[msg("Insufficient stake to satisfy the requested amount.")]
+    InsufficientStake,
+    #[msg("Cooldown period has not elapsed yet.")]
+    CooldownActive,
+    #[msg("No cooldown is currently in progress for this stake account.")]
+    NoCooldownInProgress,
 }
