@@ -993,6 +993,111 @@ pub mod stargaze_anchor {
         });
         Ok(())
     }
+
+    // ============ VAULT REGISTRY: instructions ============
+
+    /// Configure (or re-configure) the privacy-vault entry for `provider_id`.
+    /// The caller must be `provider.owner`. On re-configure, the existing
+    /// `auditor_key` and `buyer_key_rotation_cid` are preserved; only `tier`,
+    /// `on_chain_verifier`, `arweave_cid`, and `active` (forced back to true)
+    /// are overwritten. Mirrors `PrivacyVaultRegistry.configure` on EVM.
+    pub fn configure_vault(
+        ctx: Context<ConfigureVault>,
+        provider_id: [u8; 32],
+        tier: VaultTier,
+        on_chain_verifier: Pubkey,
+        arweave_cid: [u8; 32],
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.owner.key(),
+            ctx.accounts.provider.owner,
+            StargazeAnchorError::NotProviderOwner
+        );
+
+        let vault = &mut ctx.accounts.vault_config;
+        // Preserve auditor_key + buyer_key_rotation_cid across re-configures.
+        // First-time init leaves them as the zero defaults Anchor wrote.
+        vault.provider_id = provider_id;
+        vault.tier = tier;
+        vault.on_chain_verifier = on_chain_verifier;
+        vault.arweave_cid = arweave_cid;
+        vault.active = true;
+        vault.bump = ctx.bumps.vault_config;
+
+        emit!(VaultConfigured {
+            provider_id,
+            tier,
+            on_chain_verifier,
+            arweave_cid,
+        });
+        Ok(())
+    }
+
+    /// Set the optional auditor key on an active vault. Caller must be
+    /// `provider.owner`. Emits the previous + new value so observers can
+    /// reconstruct rotation history.
+    pub fn set_vault_auditor_key(
+        ctx: Context<MutateVault>,
+        provider_id: [u8; 32],
+        auditor_key: Pubkey,
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.owner.key(),
+            ctx.accounts.provider.owner,
+            StargazeAnchorError::NotProviderOwner
+        );
+        let vault = &mut ctx.accounts.vault_config;
+        require!(vault.active, StargazeAnchorError::VaultInactive);
+        let previous = vault.auditor_key;
+        vault.auditor_key = auditor_key;
+
+        emit!(VaultAuditorKeySet {
+            provider_id,
+            previous,
+            current: auditor_key,
+        });
+        Ok(())
+    }
+
+    /// Update the Arweave CID of the per-buyer key rotation policy. Caller
+    /// must be `provider.owner`; the vault must be active.
+    pub fn set_vault_buyer_key_rotation_cid(
+        ctx: Context<MutateVault>,
+        provider_id: [u8; 32],
+        cid: [u8; 32],
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.owner.key(),
+            ctx.accounts.provider.owner,
+            StargazeAnchorError::NotProviderOwner
+        );
+        let vault = &mut ctx.accounts.vault_config;
+        require!(vault.active, StargazeAnchorError::VaultInactive);
+        vault.buyer_key_rotation_cid = cid;
+
+        emit!(VaultBuyerKeyRotationUpdated { provider_id, cid });
+        Ok(())
+    }
+
+    /// Admin-only deactivation. Mirrors EVM's `DEFAULT_ADMIN_ROLE`-gated
+    /// `deactivate`: the caller must be `Config.authority`, NOT the provider
+    /// owner. Sets `active = false`; re-configuring later flips it back.
+    pub fn deactivate_vault(
+        ctx: Context<DeactivateVault>,
+        provider_id: [u8; 32],
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.admin.key(),
+            ctx.accounts.config.authority,
+            StargazeAnchorError::Unauthorized
+        );
+        let vault = &mut ctx.accounts.vault_config;
+        require!(vault.active, StargazeAnchorError::VaultInactive);
+        vault.active = false;
+
+        emit!(VaultDeactivated { provider_id });
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -1538,6 +1643,11 @@ pub enum StargazeAnchorError {
     NumericalOverflow,
     #[msg("Session account or vault authority mismatch.")]
     SessionAccountMismatch,
+    // ============ VAULT REGISTRY errors ============
+    #[msg("Caller is not the registered provider owner.")]
+    NotProviderOwner,
+    #[msg("Vault PDA does not exist or has been deactivated.")]
+    VaultInactive,
 }
 
 // ============ ESCROW: accounts ============
@@ -1797,6 +1907,123 @@ pub struct SessionSettled {
     pub total_to_providers: u64,
     pub routing_fee: u64,
     pub refund_to_agent: u64,
+}
+
+// ============ VAULT REGISTRY: accounts ============
+
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32])]
+pub struct ConfigureVault<'info> {
+    #[account(mut)]
+    pub owner: Signer<'info>,
+    #[account(
+        seeds = [b"provider", provider_id.as_ref()],
+        bump = provider.bump
+    )]
+    pub provider: Account<'info, Provider>,
+    #[account(
+        init_if_needed,
+        payer = owner,
+        space = 8 + VaultConfig::INIT_SPACE,
+        seeds = [b"vault", provider_id.as_ref()],
+        bump
+    )]
+    pub vault_config: Account<'info, VaultConfig>,
+    pub system_program: Program<'info, System>,
+}
+
+/// Shared accounts context for the two owner-gated mutators (`set_vault_*`).
+/// Vault PDA is loaded as a strict `Account<VaultConfig>` so a missing
+/// account surfaces as Anchor's `AccountNotInitialized` rather than a
+/// custom `VaultInactive` error.
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32])]
+pub struct MutateVault<'info> {
+    pub owner: Signer<'info>,
+    #[account(
+        seeds = [b"provider", provider_id.as_ref()],
+        bump = provider.bump
+    )]
+    pub provider: Account<'info, Provider>,
+    #[account(
+        mut,
+        seeds = [b"vault", provider_id.as_ref()],
+        bump = vault_config.bump
+    )]
+    pub vault_config: Account<'info, VaultConfig>,
+}
+
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32])]
+pub struct DeactivateVault<'info> {
+    pub admin: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    #[account(
+        mut,
+        seeds = [b"vault", provider_id.as_ref()],
+        bump = vault_config.bump
+    )]
+    pub vault_config: Account<'info, VaultConfig>,
+}
+
+// ============ VAULT REGISTRY: state ============
+
+/// Privacy-tier enum for `VaultConfig`. Mirrors the four EVM tier hashes
+/// (`keccak256("open" | "zk-aggregate" | "confidential" | "buyer-key")`) but
+/// as a type-safe `repr(u8)` enum — Borsh refuses to deserialize an unknown
+/// variant, so the on-chain handler does not need an `UnknownTier` revert.
+#[derive(AnchorSerialize, AnchorDeserialize, Clone, Copy, PartialEq, Eq, InitSpace, Debug)]
+#[repr(u8)]
+pub enum VaultTier {
+    Open = 0,
+    ZkAggregate = 1,
+    Confidential = 2,
+    BuyerKey = 3,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct VaultConfig {
+    pub provider_id: [u8; 32],
+    pub tier: VaultTier,
+    /// Solana program id of the per-provider Groth16 verifier. `Pubkey::default()`
+    /// is treated as "unset".
+    pub on_chain_verifier: Pubkey,
+    pub arweave_cid: [u8; 32],
+    pub buyer_key_rotation_cid: [u8; 32],
+    /// Optional confidential-payments auditor key. `Pubkey::default()` = unset.
+    pub auditor_key: Pubkey,
+    pub active: bool,
+    pub bump: u8,
+}
+
+// ============ VAULT REGISTRY: events ============
+
+#[event]
+pub struct VaultConfigured {
+    pub provider_id: [u8; 32],
+    pub tier: VaultTier,
+    pub on_chain_verifier: Pubkey,
+    pub arweave_cid: [u8; 32],
+}
+
+#[event]
+pub struct VaultAuditorKeySet {
+    pub provider_id: [u8; 32],
+    pub previous: Pubkey,
+    pub current: Pubkey,
+}
+
+#[event]
+pub struct VaultBuyerKeyRotationUpdated {
+    pub provider_id: [u8; 32],
+    pub cid: [u8; 32],
+}
+
+#[event]
+pub struct VaultDeactivated {
+    pub provider_id: [u8; 32],
 }
 
 // ============ ESCROW: helpers ============

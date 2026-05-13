@@ -894,3 +894,106 @@ pub fn ix_close_session(
         data,
     }
 }
+
+// ============ VAULT REGISTRY: PDA helpers ============
+
+pub fn vault_config_pda(provider_id: &[u8; 32]) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"vault", provider_id.as_ref()], &PROGRAM_ID)
+}
+
+// ============ VAULT REGISTRY: instruction builders ============
+
+/// Build the `configure_vault` instruction. Caller is the provider owner.
+pub fn ix_configure_vault(
+    owner: &Pubkey,
+    provider_id: [u8; 32],
+    tier: stargaze_anchor::VaultTier,
+    on_chain_verifier: Pubkey,
+    arweave_cid: [u8; 32],
+) -> Instruction {
+    let (provider, _) = provider_pda(&provider_id);
+    let (vault_config, _) = vault_config_pda(&provider_id);
+    let data = stargaze_anchor::instruction::ConfigureVault {
+        provider_id,
+        tier,
+        on_chain_verifier,
+        arweave_cid,
+    }
+    .data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new(*owner, true),
+            AccountMeta::new_readonly(provider, false),
+            AccountMeta::new(vault_config, false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+        ],
+        data,
+    }
+}
+
+/// Build the `set_vault_auditor_key` instruction. Caller is the provider owner.
+pub fn ix_set_vault_auditor_key(
+    owner: &Pubkey,
+    provider_id: [u8; 32],
+    auditor_key: Pubkey,
+) -> Instruction {
+    let (provider, _) = provider_pda(&provider_id);
+    let (vault_config, _) = vault_config_pda(&provider_id);
+    let data = stargaze_anchor::instruction::SetVaultAuditorKey {
+        provider_id,
+        auditor_key,
+    }
+    .data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new_readonly(*owner, true),
+            AccountMeta::new_readonly(provider, false),
+            AccountMeta::new(vault_config, false),
+        ],
+        data,
+    }
+}
+
+/// Build the `set_vault_buyer_key_rotation_cid` instruction. Caller is the
+/// provider owner.
+pub fn ix_set_vault_buyer_key_rotation_cid(
+    owner: &Pubkey,
+    provider_id: [u8; 32],
+    cid: [u8; 32],
+) -> Instruction {
+    let (provider, _) = provider_pda(&provider_id);
+    let (vault_config, _) = vault_config_pda(&provider_id);
+    let data = stargaze_anchor::instruction::SetVaultBuyerKeyRotationCid {
+        provider_id,
+        cid,
+    }
+    .data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new_readonly(*owner, true),
+            AccountMeta::new_readonly(provider, false),
+            AccountMeta::new(vault_config, false),
+        ],
+        data,
+    }
+}
+
+/// Build the `deactivate_vault` instruction. Caller is the protocol admin
+/// (`Config.authority`), NOT the provider owner.
+pub fn ix_deactivate_vault(admin: &Pubkey, provider_id: [u8; 32]) -> Instruction {
+    let (config, _) = config_pda();
+    let (vault_config, _) = vault_config_pda(&provider_id);
+    let data = stargaze_anchor::instruction::DeactivateVault { provider_id }.data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new_readonly(*admin, true),
+            AccountMeta::new_readonly(config, false),
+            AccountMeta::new(vault_config, false),
+        ],
+        data,
+    }
+}

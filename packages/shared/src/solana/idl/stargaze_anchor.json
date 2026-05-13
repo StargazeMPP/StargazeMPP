@@ -423,6 +423,190 @@
       ]
     },
     {
+      "name": "configure_vault",
+      "docs": [
+        "Configure (or re-configure) the privacy-vault entry for `provider_id`.",
+        "The caller must be `provider.owner`. On re-configure, the existing",
+        "`auditor_key` and `buyer_key_rotation_cid` are preserved; only `tier`,",
+        "`on_chain_verifier`, `arweave_cid`, and `active` (forced back to true)",
+        "are overwritten. Mirrors `PrivacyVaultRegistry.configure` on EVM."
+      ],
+      "discriminator": [
+        129,
+        53,
+        99,
+        52,
+        49,
+        176,
+        249,
+        156
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "provider",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  118,
+                  105,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "provider_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "tier",
+          "type": {
+            "defined": {
+              "name": "VaultTier"
+            }
+          }
+        },
+        {
+          "name": "on_chain_verifier",
+          "type": "pubkey"
+        },
+        {
+          "name": "arweave_cid",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "deactivate_vault",
+      "docs": [
+        "Admin-only deactivation. Mirrors EVM's `DEFAULT_ADMIN_ROLE`-gated",
+        "`deactivate`: the caller must be `Config.authority`, NOT the provider",
+        "owner. Sets `active = false`; re-configuring later flips it back."
+      ],
+      "discriminator": [
+        152,
+        132,
+        22,
+        236,
+        200,
+        128,
+        124,
+        174
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "provider_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "dispatch_reputation_to_tempo",
       "docs": [
         "Dispatch a reputation snapshot for `provider_id` to the Tempo receiver",
@@ -1844,6 +2028,180 @@
       ]
     },
     {
+      "name": "set_vault_auditor_key",
+      "docs": [
+        "Set the optional auditor key on an active vault. Caller must be",
+        "`provider.owner`. Emits the previous + new value so observers can",
+        "reconstruct rotation history."
+      ],
+      "discriminator": [
+        161,
+        168,
+        110,
+        193,
+        167,
+        132,
+        212,
+        207
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "provider",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  118,
+                  105,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "provider_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "auditor_key",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "set_vault_buyer_key_rotation_cid",
+      "docs": [
+        "Update the Arweave CID of the per-buyer key rotation policy. Caller",
+        "must be `provider.owner`; the vault must be active."
+      ],
+      "discriminator": [
+        248,
+        243,
+        185,
+        190,
+        222,
+        247,
+        246,
+        115
+      ],
+      "accounts": [
+        {
+          "name": "owner",
+          "signer": true
+        },
+        {
+          "name": "provider",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  118,
+                  105,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "vault_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "provider_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "cid",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        }
+      ]
+    },
+    {
       "name": "settle",
       "docs": [
         "Apply one voucher to the session: transfer (cumulative_amount - prev)",
@@ -2563,6 +2921,19 @@
       ]
     },
     {
+      "name": "VaultConfig",
+      "discriminator": [
+        99,
+        86,
+        43,
+        216,
+        184,
+        102,
+        119,
+        77
+      ]
+    },
+    {
       "name": "X402Receipt",
       "discriminator": [
         71,
@@ -2786,6 +3157,58 @@
       ]
     },
     {
+      "name": "VaultAuditorKeySet",
+      "discriminator": [
+        32,
+        136,
+        107,
+        235,
+        91,
+        148,
+        200,
+        75
+      ]
+    },
+    {
+      "name": "VaultBuyerKeyRotationUpdated",
+      "discriminator": [
+        180,
+        46,
+        200,
+        91,
+        240,
+        174,
+        107,
+        175
+      ]
+    },
+    {
+      "name": "VaultConfigured",
+      "discriminator": [
+        233,
+        213,
+        9,
+        148,
+        93,
+        175,
+        39,
+        36
+      ]
+    },
+    {
+      "name": "VaultDeactivated",
+      "discriminator": [
+        206,
+        142,
+        37,
+        100,
+        98,
+        206,
+        185,
+        157
+      ]
+    },
+    {
       "name": "VoucherSettled",
       "discriminator": [
         17,
@@ -2907,6 +3330,16 @@
       "code": 6018,
       "name": "SessionAccountMismatch",
       "msg": "Session account or vault authority mismatch."
+    },
+    {
+      "code": 6019,
+      "name": "NotProviderOwner",
+      "msg": "Caller is not the registered provider owner."
+    },
+    {
+      "code": 6020,
+      "name": "VaultInactive",
+      "msg": "Vault PDA does not exist or has been deactivated."
     }
   ],
   "types": [
@@ -3565,6 +3998,207 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultAuditorKeySet",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "previous",
+            "type": "pubkey"
+          },
+          {
+            "name": "current",
+            "type": "pubkey"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultBuyerKeyRotationUpdated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "cid",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "tier",
+            "type": {
+              "defined": {
+                "name": "VaultTier"
+              }
+            }
+          },
+          {
+            "name": "on_chain_verifier",
+            "docs": [
+              "Solana program id of the per-provider Groth16 verifier. `Pubkey::default()`",
+              "is treated as \"unset\"."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "arweave_cid",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "buyer_key_rotation_cid",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "auditor_key",
+            "docs": [
+              "Optional confidential-payments auditor key. `Pubkey::default()` = unset."
+            ],
+            "type": "pubkey"
+          },
+          {
+            "name": "active",
+            "type": "bool"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultConfigured",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "tier",
+            "type": {
+              "defined": {
+                "name": "VaultTier"
+              }
+            }
+          },
+          {
+            "name": "on_chain_verifier",
+            "type": "pubkey"
+          },
+          {
+            "name": "arweave_cid",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultDeactivated",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "VaultTier",
+      "docs": [
+        "Privacy-tier enum for `VaultConfig`. Mirrors the four EVM tier hashes",
+        "(`keccak256(\"open\" | \"zk-aggregate\" | \"confidential\" | \"buyer-key\")`) but",
+        "as a type-safe `repr(u8)` enum — Borsh refuses to deserialize an unknown",
+        "variant, so the on-chain handler does not need an `UnknownTier` revert."
+      ],
+      "repr": {
+        "kind": "rust"
+      },
+      "type": {
+        "kind": "enum",
+        "variants": [
+          {
+            "name": "Open"
+          },
+          {
+            "name": "ZkAggregate"
+          },
+          {
+            "name": "Confidential"
+          },
+          {
+            "name": "BuyerKey"
           }
         ]
       }
