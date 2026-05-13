@@ -6,6 +6,15 @@ aggregates them into per-provider composite scores in `[0, 1000]`, and
 publishes the result on-chain via
 `StargazeRegistry.setReputationScore` (`onlyRole(ORACLE_ROLE)`).
 
+## Vote flow
+
+`StargazeRegistry.castReputationVote` on Tempo no longer burns `$GAZE`
+locally — it emits `ReputationVoted` only. The 1-`$GAZE`-per-vote burn
+happens on Solana, fanned out via Chainlink CCIP, and is deferred
+until M4 lands the cross-chain message flow; votes still count toward
+score aggregation today. The oracle's `setReputationScore` flow on
+Tempo is unchanged.
+
 ## Scoring math (v1)
 
 ```
@@ -47,9 +56,8 @@ The admin must `grantRole(ORACLE_ROLE, publisher_eoa)` on the deployed
 
 - **Unweighted votes.** No stake or reputation-of-the-voter weighting.
   An adversary with many low-stake agents can move scores at a 1:1
-  cost per vote (each vote already burns 1 `$GAZE` via
-  `BurnController.burnForReputationVoteFrom`, which is the only
-  Sybil deterrent).
+  cost per vote. The 1-`$GAZE`-per-vote Sybil deterrent is enforced on
+  Solana once the M4 CCIP fan-out lands; until then votes are free.
 - **Pull-based.** The oracle reads from Postgres on `tick()`. It is
   not realtime — latency is `(indexer lag) + (tick interval)`.
 - **In-memory cursor.** Restarts replay from `cursor = 0n` unless the

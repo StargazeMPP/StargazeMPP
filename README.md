@@ -25,9 +25,9 @@ Discover, access, and pay for on-chain intelligence in a single HTTP request cyc
 
 StargazeMPP is the discovery, settlement, reputation, and privacy layer for the [Machine Payments Protocol](https://stripe.com/mpp) (MPP) — the IETF-track HTTP 402 standard, jointly launched by Stripe and Tempo, that makes machine-to-machine payments a first-class operation on the open web.
 
-Providers register intelligence services. AI agents query a public directory to discover what exists and at what price. A single signed session lets one agent stream queries to many providers, with sub-100-millisecond verification and a single on-chain settlement on close. Privacy-sensitive workloads (medical cohort aggregates, geofence attestations, raw drone telemetry) sit behind Groth16-proven vaults — agents receive a verifiable answer without ever seeing the underlying data. Providers that ship bad responses lose their `$GAZE` stake.
+Providers register intelligence services. AI agents query a public directory to discover what exists and at what price. A single signed session lets one agent stream queries to many providers, with sub-100-millisecond verification and a single on-chain settlement on close. Privacy-sensitive workloads (medical cohort aggregates, geofence attestations, raw drone telemetry) sit behind Groth16-proven vaults — agents receive a verifiable answer without ever seeing the underlying data. Providers that ship bad responses lose their `$GAZE` stake on Solana.
 
-The marketplace settles dual-rail across two chains: PathUSD on Tempo EVM for the canonical MPP path, and USDC on Solana via the x402 receipt format. Stripe, Visa, and Lightning on-ramps make the same intelligence reachable from any agent runtime.
+The marketplace settles dual-rail across two chains: PathUSD on Tempo EVM for the canonical MPP path, and USDC on Solana via the x402 receipt format. `$GAZE` is a Solana SPL launched on pump.fun — Tempo handles settlement, escrow, and reputation; Solana owns the token economy. Stripe, Visa, and Lightning on-ramps make the same intelligence reachable from any agent runtime.
 
 ## Key Features
 
@@ -35,7 +35,7 @@ The marketplace settles dual-rail across two chains: PathUSD on Tempo EVM for th
 - **Wallet-as-identity.** EIP-712 vouchers replace API keys; the agent's wallet address is the only identity that crosses the wire.
 - **Dual-rail settlement.** Tempo PathUSD and Solana USDC (x402) are interchangeable at the session boundary; fiat on-ramps via Stripe, Visa, and Lightning.
 - **Privacy by construction.** Four privacy tiers — `open`, `zk-aggregate`, `confidential`, `buyer-key` — with on-chain Groth16 verifiers wired into a per-provider registry.
-- **Slashable reputation.** Provider stake is forfeit on SLA breach or response fraud; reputation scoring is crowd-verified and cross-checked by an automated oracle.
+- **Slashable reputation.** Provider `$GAZE` stake is forfeit on SLA breach or response fraud — stake escrow lives on Solana, slashing is admin-gated. Reputation scoring is crowd-verified and cross-checked by an automated oracle.
 - **Sub-10 millisecond voucher verification.** Pure-crypto path: `ecrecover` against a cumulative EIP-712 voucher, with strict monotonicity enforced on-chain.
 - **Six intelligence categories.** On-chain analytics, physical-AI telemetry, decentralised science, real-world-asset macro signals, compliance attestations, and AI model endpoints.
 
@@ -85,7 +85,7 @@ flowchart LR
     SESS --> SOL
 ```
 
-The four service layers sit on top of the MPP primitive. Smart contracts on Tempo EVM hold escrow, mint and burn the `$GAZE` coordination token, register providers, and store reputation scores. A mirror Anchor program on Solana extends the registry to Solana-native providers and persists x402 receipts. A Yellowstone-gRPC Rust indexer projects on-chain events into a TimescaleDB-backed warehouse with sub-50-millisecond lag.
+The four service layers sit on top of the MPP primitive. Smart contracts on Tempo EVM hold session escrow, EIP-712 voucher verification, reputation scores, and the per-provider vault registry. The Solana Anchor program owns the `$GAZE` token economy — stake/unstake, slashing, and the routing-fee burn ladder against the pump.fun-launched SPL. Chainlink CCIP mirrors reputation scores between the two chains. A Yellowstone-gRPC Rust indexer projects on-chain events into a TimescaleDB-backed warehouse with sub-50-millisecond lag.
 
 ### Request Lifecycle
 
@@ -94,7 +94,7 @@ sequenceDiagram
     participant Agent
     participant Provider
     participant Escrow as StargazeEscrow
-    participant Burn as BurnController
+    participant Treasury as RoutingFeeTreasury
 
     Agent->>Provider: GET /intelligence?q=…
     Provider-->>Agent: 402 Payment Required<br/>{ price, methods, sessionRequired }
@@ -110,8 +110,8 @@ sequenceDiagram
 
     Agent->>Escrow: closeSession()
     Escrow->>Provider: payout (98%)
-    Escrow->>Burn: routing fee (2%)
-    Burn->>Burn: burn 50% · stakers 50%
+    Escrow->>Treasury: routing fee (2%)
+    Note over Treasury: off-chain settler bridges USD → Solana<br/>and invokes the burn ladder on the Anchor program
     Escrow-->>Agent: refund unused balance
 ```
 
@@ -178,8 +178,8 @@ npm test --workspace @stargazempp/provider-sdk      # Provider SDK
 |---|---|
 | [`@stargazempp/shared`](packages/shared) | Cross-package types, schemas, ABIs, and IDL. EIP-712 voucher domain, JWT session claims, `MppVerifier` + `VaultProofGenerator` interfaces, USDC mint constants, and category enum. |
 | [`@stargazempp/provider-sdk`](packages/provider-sdk) | Decorator-style SDK for monetising any HTTP endpoint as an MPP intelligence service. Includes the reference `StargazeMppVerifier` (sub-10 ms voucher recovery via viem). |
-| [`@stargazempp/contracts-evm`](packages/contracts-evm) | Solidity contracts deployed to Tempo EVM: `GAZEToken`, `BurnController`, `StargazeEscrow`, `StargazeRegistry`, `PrivacyVaultRegistry`. Foundry-based, via-IR + optimizer enabled, 4-of-7 Safe multisig upgrade authority planned. |
-| [`@stargazempp/anchor-program`](packages/anchor-program) | `StargazeAnchor` program on Solana — Solana-side provider registry, x402 receipt PDA, and CCIP-mirrored reputation. |
+| [`@stargazempp/contracts-evm`](packages/contracts-evm) | Solidity contracts on Tempo EVM: `StargazeEscrow` (PathUSD session escrow + EIP-712 voucher settlement), `StargazeRegistry` (provider profile + reputation), `PrivacyVaultRegistry` (per-provider Groth16 vault config), `StargazeCcipReceiver` (CCIP-mirrored score ingress). Foundry-based, via-IR + optimizer enabled. |
+| [`@stargazempp/anchor-program`](packages/anchor-program) | `StargazeAnchor` program on Solana — Solana-side provider registry, x402 receipt PDA, CCIP-mirrored reputation, **and the `$GAZE` SPL token economy: stake/unstake with cooldown, slashing, and the routing-fee burn ladder**. `$GAZE` itself launches on pump.fun as a standard SPL. |
 | [`@stargazempp/indexer`](packages/indexer) | Rust + Yellowstone gRPC indexer for `StargazeAnchor` events and x402 USDC receipts. Sub-50-millisecond lag target. |
 | [`@stargazempp/vault-circuits`](packages/vault-circuits) | Groth16 circuits (snarkjs / circom) and on-chain verifier contracts for the StargazeVault privacy tiers. |
 | [`@stargazempp/frontend`](packages/frontend) | Next.js 16 (App Router, Turbopack, RSC) marketplace front-end — Fraunces / Inter Tight / JetBrains Mono brand. |
@@ -201,13 +201,13 @@ npm test --workspace @stargazempp/provider-sdk      # Provider SDK
 |---|---|---|
 | 1 — Index + Session | Weeks 1–8 | Public directory live; ten launch providers; Tempo + Solana session end-to-end. |
 | 2 — Vault + Physical AI | Weeks 9–18 | Groth16 privacy wrapper live; drone and robot telemetry registered; 10,000 queries / day. |
-| 3 — Audit + TGE + AI Models | Weeks 19–26 | Trail of Bits audit closed; `$GAZE` token generation event; 100,000 queries / day. |
+| 3 — Audit + TGE + AI Models | Weeks 19–26 | Trail of Bits audit closed; `$GAZE` SPL launches on pump.fun; 100,000 queries / day. |
 | 4 — Enterprise + CCIP | Weeks 27–36 | Chainlink CCIP cross-chain provider registry; enterprise bulk sessions; 1M queries / day. |
 | 5 — Full agentic economy | Month 10+ | 1,000+ providers; $1M+ PathUSD routed per month. |
 
 ## Security
 
-- **Audits.** Trail of Bits is engaged for the EVM contracts and Groth16 verifier contracts prior to mainnet. Certora is engaged for formal verification of the `GAZEToken` transfer hook.
+- **Audits.** Trail of Bits is engaged for the EVM contracts and Groth16 verifier contracts prior to mainnet. Certora is engaged for formal verification of escrow + voucher-settlement invariants.
 - **Bug bounty.** Listed on Immunefi from launch — $200K critical (escrow drain), $50K high.
 - **Disclosure.** Send vulnerability reports to `security@stargazempp.com` (PGP key in [`SECURITY.md`](SECURITY.md)). Coordinated disclosure within 90 days unless an immediate fix would compromise users.
 - **Upgrade authority.** Every Tempo EVM contract sits behind a 4-of-7 Safe multisig with a 14-day timelock on every upgrade.
