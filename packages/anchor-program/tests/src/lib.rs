@@ -228,6 +228,10 @@ pub fn stake_pool_authority_pda() -> (Pubkey, u8) {
     Pubkey::find_program_address(&[b"stake_pool_authority"], &PROGRAM_ID)
 }
 
+pub fn staker_reward_pool_authority_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"staker_reward_pool"], &PROGRAM_ID)
+}
+
 /// Compute the associated token account address for `owner` holding `mint`.
 pub fn associated_token_address(owner: &Pubkey, mint: &Pubkey) -> Pubkey {
     spl_associated_token_account::get_associated_token_address(owner, mint)
@@ -372,6 +376,58 @@ pub fn ix_claim_unstake(
     }
 }
 
+/// Build the `process_routing_fee_burn` instruction. The reward-pool ATA is
+/// derived from the `staker_reward_pool_authority` PDA + the stake mint and
+/// is created on first call via `init_if_needed`.
+pub fn ix_process_routing_fee_burn(
+    authority: &Pubkey,
+    stake_mint: &Pubkey,
+    amount: u64,
+) -> Instruction {
+    let (staking_config, _) = staking_config_pda();
+    let authority_ata = associated_token_address(authority, stake_mint);
+    let (reward_pool_auth, _) = staker_reward_pool_authority_pda();
+    let reward_pool_ata = associated_token_address(&reward_pool_auth, stake_mint);
+    let data = stargaze_anchor::instruction::ProcessRoutingFeeBurn { amount }.data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new(*authority, true),
+            AccountMeta::new(staking_config, false),
+            AccountMeta::new(*stake_mint, false),
+            AccountMeta::new(authority_ata, false),
+            AccountMeta::new_readonly(reward_pool_auth, false),
+            AccountMeta::new(reward_pool_ata, false),
+            AccountMeta::new_readonly(TOKEN_PROGRAM_ID, false),
+            AccountMeta::new_readonly(ASSOCIATED_TOKEN_PROGRAM_ID, false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+        ],
+        data,
+    }
+}
+
+/// Build the `reputation_vote_burn` instruction.
+pub fn ix_reputation_vote_burn(
+    voter: &Pubkey,
+    stake_mint: &Pubkey,
+    provider_id: [u8; 32],
+) -> Instruction {
+    let (staking_config, _) = staking_config_pda();
+    let voter_ata = associated_token_address(voter, stake_mint);
+    let data = stargaze_anchor::instruction::ReputationVoteBurn { provider_id }.data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new_readonly(*voter, true),
+            AccountMeta::new_readonly(staking_config, false),
+            AccountMeta::new(*stake_mint, false),
+            AccountMeta::new(voter_ata, false),
+            AccountMeta::new_readonly(TOKEN_PROGRAM_ID, false),
+        ],
+        data,
+    }
+}
+
 /// Build the `slash` instruction. Burn destination ATA is the
 /// associated-token-account of the canonical incinerator address.
 pub fn ix_slash(
@@ -499,6 +555,15 @@ pub fn token_balance(svm: &LiteSVM, ata: &Pubkey) -> u64 {
     let acct = svm.get_account(ata).expect("ATA exists");
     let parsed = spl_token::state::Account::unpack(&acct.data).expect("decode token account");
     parsed.amount
+}
+
+/// Deserialise a `spl_token::state::Mint` from the SVM and return the current
+/// total supply (base units). Used by the burn-ladder tests to verify that
+/// `token::burn` truly reduces SPL supply.
+pub fn mint_supply(svm: &LiteSVM, mint: &Pubkey) -> u64 {
+    let acct = svm.get_account(mint).expect("mint exists");
+    let parsed = spl_token::state::Mint::unpack(&acct.data).expect("decode mint");
+    parsed.supply
 }
 
 /// Insert a minimal lamport-funded system account at `addr`. Useful when the

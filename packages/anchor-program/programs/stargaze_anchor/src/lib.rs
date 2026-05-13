@@ -1,6 +1,6 @@
 use anchor_lang::prelude::*;
 use anchor_spl::associated_token::AssociatedToken;
-use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token::{self, Burn, Mint, Token, TokenAccount, Transfer};
 
 declare_id!("m6P7kwvXoET9n5B8DFGwwLEozXdv6jBJPdbMiW1TH1R");
 
@@ -15,6 +15,11 @@ pub const VERIFIED_STAKE_DEFAULT: u64 = 500_000_000;
 /// Default unstake cooldown window (7 days).
 #[constant]
 pub const COOLDOWN_DEFAULT_SECS: i64 = 7 * 86_400;
+/// Fixed reputation-vote burn amount: 1 GAZE at 6 decimals. One vote = one
+/// token, irrevocably burned from the voter's ATA. Surfaced through the IDL so
+/// the indexer and the client SDK can both reference the same constant.
+#[constant]
+pub const VOTE_BURN_AMOUNT: u64 = 1_000_000;
 
 /// Fixed burn destination: the canonical Solana incinerator address. Tokens
 /// sent here are unrecoverable.
@@ -195,6 +200,8 @@ pub mod stargaze_anchor {
         staking.min_stake = min_stake;
         staking.verified_stake = verified_stake;
         staking.cooldown_secs = cooldown_secs;
+        staking.total_routing_fee_burned = 0;
+        staking.total_routing_fee_to_stakers = 0;
         staking.bump = ctx.bumps.staking_config;
 
         emit!(StakingInitialized {
@@ -439,6 +446,104 @@ pub mod stargaze_anchor {
             owner: staker,
             amount: to_slash,
             destination: BURN_DESTINATION,
+        });
+        Ok(())
+    }
+
+    /// Process a routing-fee tranche through the burn ladder. Splits `amount`
+    /// 50/50: half is permanently burned via `token::burn` (reducing SPL
+    /// supply), half is transferred to the staker-reward pool ATA controlled
+    /// by the `staker_reward_pool_authority` PDA. On odd amounts the extra
+    /// base unit is routed to stakers (`to_stakers = amount - amount/2`).
+    ///
+    /// The reward pool only accumulates here — distribution is deferred.
+    /// Defer: staker reward distribution mechanism (pull-based Merkle vs
+    /// push-based proportional) is unresolved.
+    ///
+    /// M4: the `authority` admin gate is swapped for the CCIP fan-out so the
+    /// Tempo routing fee can be processed without a privileged signer.
+    pub fn process_routing_fee_burn(
+        ctx: Context<ProcessRoutingFeeBurn>,
+        amount: u64,
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.authority.key(),
+            ctx.accounts.staking_config.authority,
+            StargazeAnchorError::Unauthorized
+        );
+        require!(amount > 0, StargazeAnchorError::StakeAmountZero);
+        require!(
+            ctx.accounts.staking_config.stake_mint != Pubkey::default(),
+            StargazeAnchorError::StakeMintUnset
+        );
+
+        let burned = amount / 2;
+        // Odd amount: the extra base unit goes to stakers, not the burn.
+        let to_stakers = amount
+            .checked_sub(burned)
+            .ok_or(StargazeAnchorError::InsufficientStake)?;
+
+        if burned > 0 {
+            let cpi_accounts = Burn {
+                mint: ctx.accounts.stake_mint.to_account_info(),
+                from: ctx.accounts.authority_ata.to_account_info(),
+                authority: ctx.accounts.authority.to_account_info(),
+            };
+            let cpi_ctx =
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
+            token::burn(cpi_ctx, burned)?;
+        }
+
+        if to_stakers > 0 {
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.authority_ata.to_account_info(),
+                to: ctx.accounts.staker_reward_pool_ata.to_account_info(),
+                authority: ctx.accounts.authority.to_account_info(),
+            };
+            let cpi_ctx =
+                CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
+            token::transfer(cpi_ctx, to_stakers)?;
+        }
+
+        let staking = &mut ctx.accounts.staking_config;
+        staking.total_routing_fee_burned = staking
+            .total_routing_fee_burned
+            .checked_add(burned)
+            .ok_or(StargazeAnchorError::InsufficientStake)?;
+        staking.total_routing_fee_to_stakers = staking
+            .total_routing_fee_to_stakers
+            .checked_add(to_stakers)
+            .ok_or(StargazeAnchorError::InsufficientStake)?;
+
+        emit!(RoutingFeeProcessed { burned, to_stakers });
+        Ok(())
+    }
+
+    /// Burn one $GAZE token from the voter's ATA as the on-chain cost of
+    /// casting a reputation vote against `provider_id`. The vote itself is
+    /// emitted upstream via `cast_reputation_vote` / Tempo; this instruction
+    /// only enforces the token-burn cost. Insufficient balance bubbles up as
+    /// a token-program error.
+    pub fn reputation_vote_burn(
+        ctx: Context<ReputationVoteBurn>,
+        provider_id: [u8; 32],
+    ) -> Result<()> {
+        require!(
+            ctx.accounts.staking_config.stake_mint != Pubkey::default(),
+            StargazeAnchorError::StakeMintUnset
+        );
+
+        let cpi_accounts = Burn {
+            mint: ctx.accounts.stake_mint.to_account_info(),
+            from: ctx.accounts.voter_ata.to_account_info(),
+            authority: ctx.accounts.voter.to_account_info(),
+        };
+        let cpi_ctx = CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
+        token::burn(cpi_ctx, VOTE_BURN_AMOUNT)?;
+
+        emit!(ReputationVoteBurned {
+            voter: ctx.accounts.voter.key(),
+            provider_id,
         });
         Ok(())
     }
@@ -707,6 +812,63 @@ pub struct Slash<'info> {
     pub token_program: Program<'info, Token>,
 }
 
+#[derive(Accounts)]
+pub struct ProcessRoutingFeeBurn<'info> {
+    #[account(mut)]
+    pub authority: Signer<'info>,
+    #[account(
+        mut,
+        seeds = [b"staking_config"],
+        bump = staking_config.bump
+    )]
+    pub staking_config: Account<'info, StakingConfig>,
+    #[account(
+        mut,
+        constraint = stake_mint.key() == staking_config.stake_mint @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub stake_mint: Account<'info, Mint>,
+    #[account(
+        mut,
+        constraint = authority_ata.owner == authority.key() @ StargazeAnchorError::Unauthorized,
+        constraint = authority_ata.mint == stake_mint.key() @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub authority_ata: Account<'info, TokenAccount>,
+    /// CHECK: PDA signer for the staker reward pool ATA. Address is verified
+    /// via the seeds constraint; the ATA constraint below pins ownership.
+    #[account(seeds = [b"staker_reward_pool"], bump)]
+    pub staker_reward_pool_authority: UncheckedAccount<'info>,
+    #[account(
+        init_if_needed,
+        payer = authority,
+        associated_token::mint = stake_mint,
+        associated_token::authority = staker_reward_pool_authority,
+    )]
+    pub staker_reward_pool_ata: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32])]
+pub struct ReputationVoteBurn<'info> {
+    pub voter: Signer<'info>,
+    #[account(seeds = [b"staking_config"], bump = staking_config.bump)]
+    pub staking_config: Account<'info, StakingConfig>,
+    #[account(
+        mut,
+        constraint = stake_mint.key() == staking_config.stake_mint @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub stake_mint: Account<'info, Mint>,
+    #[account(
+        mut,
+        constraint = voter_ata.owner == voter.key() @ StargazeAnchorError::Unauthorized,
+        constraint = voter_ata.mint == stake_mint.key() @ StargazeAnchorError::StakeMintUnset
+    )]
+    pub voter_ata: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+
 #[account]
 #[derive(InitSpace)]
 pub struct Config {
@@ -723,6 +885,12 @@ pub struct StakingConfig {
     pub min_stake: u64,
     pub verified_stake: u64,
     pub cooldown_secs: i64,
+    /// Cumulative base units burned through `process_routing_fee_burn`. The
+    /// reward-pool counterpart lives in `total_routing_fee_to_stakers`.
+    pub total_routing_fee_burned: u64,
+    /// Cumulative base units routed to the staker reward pool ATA. Pure
+    /// accumulator — distribution mechanism is deferred.
+    pub total_routing_fee_to_stakers: u64,
     pub bump: u8,
 }
 
@@ -842,6 +1010,18 @@ pub struct StakingInitialized {
 #[event]
 pub struct StakeMintSet {
     pub stake_mint: Pubkey,
+}
+
+#[event]
+pub struct RoutingFeeProcessed {
+    pub burned: u64,
+    pub to_stakers: u64,
+}
+
+#[event]
+pub struct ReputationVoteBurned {
+    pub voter: Pubkey,
+    pub provider_id: [u8; 32],
 }
 
 #[error_code]
