@@ -7,13 +7,19 @@ export interface DeployedAddresses {
   StargazeRegistry: Address;
   PrivacyVaultRegistry: Address;
   StargazeCcipReceiver: Address;
+  AggregateSumVerifier?: Address;
+  AggregateMeanVerifier?: Address;
+  GeofenceVerifier?: Address;
 }
 
 export type TempoNetwork = 'tempo-mainnet' | 'tempo-testnet' | 'local';
 
 /**
  * Populated by `packages/contracts-evm`'s deploy script. Empty here until
- * the first testnet deploy lands.
+ * the first testnet deploy lands. The three Groth16 verifier fields
+ * (AggregateSumVerifier, AggregateMeanVerifier, GeofenceVerifier) are
+ * optional: they are shared instances across providers and may not be
+ * present on every network.
  */
 export const ADDRESSES: Partial<Record<TempoNetwork, DeployedAddresses>> = {};
 
