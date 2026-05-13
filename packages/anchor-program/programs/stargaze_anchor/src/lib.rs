@@ -636,6 +636,29 @@ pub mod stargaze_anchor {
         Ok(())
     }
 
+    /// Set `provider.reputation_score` directly. Authority-gated (the oracle
+    /// service holds `config.authority`). Replaces `ccip_mirror_score` in a
+    /// Solana-only world — CCIP ingress is no longer relevant.
+    pub fn set_reputation_score(
+        ctx: Context<SetReputationScore>,
+        provider_id: [u8; 32],
+        new_score: u16,
+    ) -> Result<()> {
+        require!(new_score <= 1000, StargazeAnchorError::ScoreOutOfRange);
+        require_keys_eq!(
+            ctx.accounts.authority.key(),
+            ctx.accounts.config.authority,
+            StargazeAnchorError::Unauthorized
+        );
+        let provider = &mut ctx.accounts.provider;
+        provider.reputation_score = new_score;
+        emit!(ReputationScoreSet {
+            provider_id,
+            score: new_score,
+        });
+        Ok(())
+    }
+
     // ============ ESCROW: instructions ============
 
     /// One-shot initialiser for the escrow side: records the USDC mint and the
@@ -1180,6 +1203,20 @@ pub struct CcipMirrorScore<'info> {
 
 #[derive(Accounts)]
 #[instruction(provider_id: [u8; 32])]
+pub struct SetReputationScore<'info> {
+    pub authority: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    #[account(
+        mut,
+        seeds = [b"provider", provider_id.as_ref()],
+        bump = provider.bump
+    )]
+    pub provider: Account<'info, Provider>,
+}
+
+#[derive(Accounts)]
+#[instruction(provider_id: [u8; 32])]
 pub struct DispatchReputationToTempo<'info> {
     pub sender: Signer<'info>,
     #[account(seeds = [b"config"], bump = config.bump)]
@@ -1521,6 +1558,12 @@ pub struct X402ReceiptRecorded {
 
 #[event]
 pub struct ReputationMirrored {
+    pub provider_id: [u8; 32],
+    pub score: u16,
+}
+
+#[event]
+pub struct ReputationScoreSet {
     pub provider_id: [u8; 32],
     pub score: u16,
 }

@@ -1829,6 +1829,88 @@
       ]
     },
     {
+      "name": "set_reputation_score",
+      "docs": [
+        "Set `provider.reputation_score` directly. Authority-gated (the oracle",
+        "service holds `config.authority`). Replaces `ccip_mirror_score` in a",
+        "Solana-only world — CCIP ingress is no longer relevant."
+      ],
+      "discriminator": [
+        154,
+        86,
+        140,
+        63,
+        26,
+        57,
+        237,
+        200
+      ],
+      "accounts": [
+        {
+          "name": "authority",
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "provider",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  112,
+                  114,
+                  111,
+                  118,
+                  105,
+                  100,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        }
+      ],
+      "args": [
+        {
+          "name": "provider_id",
+          "type": {
+            "array": [
+              "u8",
+              32
+            ]
+          }
+        },
+        {
+          "name": "new_score",
+          "type": "u16"
+        }
+      ]
+    },
+    {
       "name": "set_stake_mint",
       "docs": [
         "One-shot setter for the stake mint, used when staking is initialised",
@@ -3001,6 +3083,19 @@
       ]
     },
     {
+      "name": "ReputationScoreSet",
+      "discriminator": [
+        163,
+        91,
+        237,
+        1,
+        139,
+        65,
+        56,
+        36
+      ]
+    },
+    {
       "name": "ReputationVoteBurned",
       "discriminator": [
         206,
@@ -3512,6 +3607,27 @@
     },
     {
       "name": "ReputationMirrored",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "score",
+            "type": "u16"
+          }
+        ]
+      }
+    },
+    {
+      "name": "ReputationScoreSet",
       "type": {
         "kind": "struct",
         "fields": [

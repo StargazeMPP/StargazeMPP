@@ -183,6 +183,30 @@ pub fn ix_ccip_mirror_score(
     }
 }
 
+/// Build the `set_reputation_score` instruction.
+pub fn ix_set_reputation_score(
+    authority: &Pubkey,
+    provider_id: [u8; 32],
+    new_score: u16,
+) -> Instruction {
+    let (config, _) = config_pda();
+    let (provider, _) = provider_pda(&provider_id);
+    let data = stargaze_anchor::instruction::SetReputationScore {
+        provider_id,
+        new_score,
+    }
+    .data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new_readonly(*authority, true),
+            AccountMeta::new_readonly(config, false),
+            AccountMeta::new(provider, false),
+        ],
+        data,
+    }
+}
+
 /// Build the `dispatch_reputation_to_tempo` instruction.
 pub fn ix_dispatch_reputation_to_tempo(
     sender: &Pubkey,
