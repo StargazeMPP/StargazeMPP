@@ -648,3 +648,249 @@ pub fn find_event<E: anchor_lang::Event + Discriminator + anchor_lang::AnchorDes
     None
 }
 
+// ============ ESCROW: PDA helpers ============
+
+/// Canonical Ed25519 native program id (`Ed25519SigVerify111111111111111111111111111`).
+pub const ED25519_PROGRAM_ID: Pubkey = solana_sdk::pubkey!(
+    "Ed25519SigVerify111111111111111111111111111"
+);
+
+/// Canonical instructions sysvar id (`Sysvar1nstructions1111111111111111111111111`).
+pub const INSTRUCTIONS_SYSVAR_ID: Pubkey = solana_sdk::pubkey!(
+    "Sysvar1nstructions1111111111111111111111111"
+);
+
+pub fn usdc_config_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"usdc_config"], &PROGRAM_ID)
+}
+
+pub fn session_pda(session_id: &[u8; 32]) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"session", session_id.as_ref()], &PROGRAM_ID)
+}
+
+pub fn session_vault_authority_pda(session_id: &[u8; 32]) -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"session_vault", session_id.as_ref()], &PROGRAM_ID)
+}
+
+pub fn routing_fee_vault_authority_pda() -> (Pubkey, u8) {
+    Pubkey::find_program_address(&[b"routing_fee_vault"], &PROGRAM_ID)
+}
+
+pub fn voucher_cursor_pda(session_id: &[u8; 32], provider_id: &[u8; 32]) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[b"voucher_cursor", session_id.as_ref(), provider_id.as_ref()],
+        &PROGRAM_ID,
+    )
+}
+
+pub fn consumed_voucher_pda(session_id: &[u8; 32], message_hash: &[u8; 32]) -> (Pubkey, u8) {
+    Pubkey::find_program_address(
+        &[b"voucher", session_id.as_ref(), message_hash.as_ref()],
+        &PROGRAM_ID,
+    )
+}
+
+// ============ ESCROW: voucher message helpers ============
+
+/// Domain separator. Must stay byte-identical to `VOUCHER_DOMAIN_TAG` on-chain.
+pub const VOUCHER_DOMAIN_TAG: [u8; 21] = *b"StargazeMPP/Voucher/1";
+
+/// Build the canonical 133-byte voucher message exactly as the on-chain
+/// program expects. Layout: `domain_tag (21) || session_id (32) ||
+/// agent_wallet (32) || provider_id (32) || cumulative_amount_le (8) ||
+/// nonce_le (8)`.
+pub fn build_voucher_message(
+    session_id: &[u8; 32],
+    agent_wallet: &Pubkey,
+    provider_id: &[u8; 32],
+    cumulative_amount: u64,
+    nonce: u64,
+) -> [u8; 133] {
+    let mut buf = [0u8; 133];
+    buf[..21].copy_from_slice(&VOUCHER_DOMAIN_TAG);
+    buf[21..53].copy_from_slice(session_id);
+    buf[53..85].copy_from_slice(&agent_wallet.to_bytes());
+    buf[85..117].copy_from_slice(provider_id);
+    buf[117..125].copy_from_slice(&cumulative_amount.to_le_bytes());
+    buf[125..133].copy_from_slice(&nonce.to_le_bytes());
+    buf
+}
+
+/// SHA-256 of the voucher message bytes — used as the seed component for
+/// the `consumed_voucher` PDA.
+pub fn voucher_message_hash(message: &[u8]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut hasher = Sha256::new();
+    hasher.update(message);
+    let out = hasher.finalize();
+    let mut arr = [0u8; 32];
+    arr.copy_from_slice(&out);
+    arr
+}
+
+/// Sign the voucher message with the agent's ed25519 secret key. Returns the
+/// 64-byte signature in the standard Ed25519 representation.
+pub fn sign_voucher(agent: &Keypair, message: &[u8]) -> [u8; 64] {
+    // The 64-byte secret is the concatenation of the seed (32B) and the public
+    // key (32B) in solana_sdk::Keypair; ed25519-dalek 1.0's Keypair::from_bytes
+    // accepts exactly that layout.
+    let dalek_kp = ed25519_dalek::Keypair::from_bytes(&agent.to_bytes())
+        .expect("agent keypair -> dalek");
+    let sig = ed25519_dalek::Signer::sign(&dalek_kp, message);
+    sig.to_bytes()
+}
+
+/// Build an Ed25519 precompile instruction that verifies `signature` of
+/// `message` by `pubkey`. Layout: 2-byte header + 14-byte offsets + 32B
+/// pubkey + 64B signature + N-byte message; matches the on-chain parser.
+pub fn build_ed25519_ix(pubkey: &Pubkey, signature: &[u8; 64], message: &[u8]) -> Instruction {
+    let pubkey_bytes = pubkey.to_bytes();
+    solana_ed25519_program::new_ed25519_instruction_with_signature(
+        message,
+        signature,
+        &pubkey_bytes,
+    )
+}
+
+// ============ ESCROW: instruction builders ============
+
+/// Build the `init_escrow` instruction.
+pub fn ix_init_escrow(authority: &Pubkey, usdc_mint: Pubkey, router: Pubkey) -> Instruction {
+    let (config, _) = config_pda();
+    let (usdc_config, _) = usdc_config_pda();
+    let data = stargaze_anchor::instruction::InitEscrow { usdc_mint, router }.data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new(*authority, true),
+            AccountMeta::new_readonly(config, false),
+            AccountMeta::new(usdc_config, false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+        ],
+        data,
+    }
+}
+
+/// Build the `open_session` instruction. Caller pays rent + USDC.
+pub fn ix_open_session(
+    agent: &Pubkey,
+    usdc_mint: &Pubkey,
+    session_id: [u8; 32],
+    deposit: u64,
+    spending_limit: u64,
+    expires_at: i64,
+) -> Instruction {
+    let (usdc_config, _) = usdc_config_pda();
+    let (session, _) = session_pda(&session_id);
+    let (vault_authority, _) = session_vault_authority_pda(&session_id);
+    let session_vault_ata = associated_token_address(&vault_authority, usdc_mint);
+    let agent_ata = associated_token_address(agent, usdc_mint);
+    let data = stargaze_anchor::instruction::OpenSession {
+        session_id: Pubkey::new_from_array(session_id),
+        deposit,
+        spending_limit,
+        expires_at,
+    }
+    .data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new(*agent, true),
+            AccountMeta::new_readonly(usdc_config, false),
+            AccountMeta::new(session, false),
+            AccountMeta::new_readonly(vault_authority, false),
+            AccountMeta::new_readonly(*usdc_mint, false),
+            AccountMeta::new(session_vault_ata, false),
+            AccountMeta::new(agent_ata, false),
+            AccountMeta::new_readonly(TOKEN_PROGRAM_ID, false),
+            AccountMeta::new_readonly(ASSOCIATED_TOKEN_PROGRAM_ID, false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+        ],
+        data,
+    }
+}
+
+/// Build the program `settle` instruction. The caller MUST prepend an
+/// `Ed25519` precompile ix carrying the matching signed message — see
+/// `build_ed25519_ix` and `build_voucher_message`.
+#[allow(clippy::too_many_arguments)]
+pub fn ix_settle(
+    router: &Pubkey,
+    session_id: [u8; 32],
+    provider_id: [u8; 32],
+    provider_owner: &Pubkey,
+    usdc_mint: &Pubkey,
+    cumulative_amount: u64,
+    nonce: u64,
+    message_hash: [u8; 32],
+) -> Instruction {
+    let (usdc_config, _) = usdc_config_pda();
+    let (session, _) = session_pda(&session_id);
+    let (vault_authority, _) = session_vault_authority_pda(&session_id);
+    let session_vault_ata = associated_token_address(&vault_authority, usdc_mint);
+    let provider_ata = associated_token_address(provider_owner, usdc_mint);
+    let (fee_vault_authority, _) = routing_fee_vault_authority_pda();
+    let routing_fee_vault_ata = associated_token_address(&fee_vault_authority, usdc_mint);
+    let (cursor, _) = voucher_cursor_pda(&session_id, &provider_id);
+    let (consumed_voucher, _) = consumed_voucher_pda(&session_id, &message_hash);
+    let data = stargaze_anchor::instruction::Settle {
+        session_id: Pubkey::new_from_array(session_id),
+        provider_id: Pubkey::new_from_array(provider_id),
+        cumulative_amount,
+        nonce,
+        message_hash: Pubkey::new_from_array(message_hash),
+    }
+    .data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new(*router, true),
+            AccountMeta::new_readonly(usdc_config, false),
+            AccountMeta::new(session, false),
+            AccountMeta::new_readonly(vault_authority, false),
+            AccountMeta::new(session_vault_ata, false),
+            AccountMeta::new(provider_ata, false),
+            AccountMeta::new_readonly(fee_vault_authority, false),
+            AccountMeta::new_readonly(*usdc_mint, false),
+            AccountMeta::new(routing_fee_vault_ata, false),
+            AccountMeta::new(cursor, false),
+            AccountMeta::new(consumed_voucher, false),
+            AccountMeta::new_readonly(INSTRUCTIONS_SYSVAR_ID, false),
+            AccountMeta::new_readonly(TOKEN_PROGRAM_ID, false),
+            AccountMeta::new_readonly(ASSOCIATED_TOKEN_PROGRAM_ID, false),
+            AccountMeta::new_readonly(SYSTEM_PROGRAM_ID, false),
+        ],
+        data,
+    }
+}
+
+/// Build the `close_session` instruction.
+pub fn ix_close_session(
+    caller: &Pubkey,
+    session_id: [u8; 32],
+    agent_wallet: &Pubkey,
+    usdc_mint: &Pubkey,
+) -> Instruction {
+    let (usdc_config, _) = usdc_config_pda();
+    let (session, _) = session_pda(&session_id);
+    let (vault_authority, _) = session_vault_authority_pda(&session_id);
+    let session_vault_ata = associated_token_address(&vault_authority, usdc_mint);
+    let agent_ata = associated_token_address(agent_wallet, usdc_mint);
+    let data = stargaze_anchor::instruction::CloseSession {
+        session_id: Pubkey::new_from_array(session_id),
+    }
+    .data();
+    Instruction {
+        program_id: PROGRAM_ID,
+        accounts: vec![
+            AccountMeta::new(*caller, true),
+            AccountMeta::new_readonly(usdc_config, false),
+            AccountMeta::new(session, false),
+            AccountMeta::new_readonly(vault_authority, false),
+            AccountMeta::new(session_vault_ata, false),
+            AccountMeta::new(agent_ata, false),
+            AccountMeta::new_readonly(TOKEN_PROGRAM_ID, false),
+        ],
+        data,
+    }
+}

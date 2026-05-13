@@ -26,6 +26,34 @@ pub const VOTE_BURN_AMOUNT: u64 = 1_000_000;
 pub const BURN_DESTINATION: Pubkey =
     anchor_lang::solana_program::pubkey!("1nc1nerator11111111111111111111111111111111");
 
+// ============ ESCROW: constants ============
+/// Domain separator for the off-chain voucher signing scheme. Twenty-one
+/// ASCII bytes; surfaced through the IDL so the off-chain SDK can copy the
+/// same literal byte-for-byte. The voucher message starts with this prefix
+/// followed by `session_id || agent_wallet || provider_id ||
+/// cumulative_amount_le || nonce_le` for a total of 133 bytes.
+#[constant]
+pub const VOUCHER_DOMAIN_TAG: [u8; 21] = *b"StargazeMPP/Voucher/1";
+
+/// Total length of the voucher message bytes that the off-chain agent signs
+/// and the on-chain program verifies (see `VOUCHER_DOMAIN_TAG`).
+#[constant]
+pub const VOUCHER_MESSAGE_LEN: u32 = 133;
+
+/// Routing-fee basis points. 2% of every voucher amount is diverted from the
+/// provider payout into the singleton routing-fee USDC vault.
+#[constant]
+pub const ROUTING_FEE_BPS: u16 = 200;
+
+/// Conversion of routing-fee USDC into $GAZE for the burn ladder is handled
+/// in a separate (admin-only) instruction `convert_routing_fees_to_gaze`
+/// which is **NOT** in scope here. The planned flow is:
+///   1. Drain `routing_fee_vault_ata` (USDC).
+///   2. Swap USDC -> $GAZE via Jupiter (or comparable router).
+///   3. CPI into `process_routing_fee_burn` with the resulting $GAZE.
+/// Until that instruction lands, settled routing fees accumulate as USDC
+/// in the vault.
+
 /// StargazeAnchor — Solana-side mirror of the Tempo `StargazeRegistry`.
 ///
 /// Responsibilities:
@@ -607,6 +635,364 @@ pub mod stargaze_anchor {
         });
         Ok(())
     }
+
+    // ============ ESCROW: instructions ============
+
+    /// One-shot initialiser for the escrow side: records the USDC mint and the
+    /// router pubkey that is permitted to call `settle`. The caller must be
+    /// the existing `Config.authority` admin.
+    pub fn init_escrow(
+        ctx: Context<InitEscrow>,
+        usdc_mint: Pubkey,
+        router: Pubkey,
+    ) -> Result<()> {
+        require_keys_eq!(
+            ctx.accounts.admin.key(),
+            ctx.accounts.config.authority,
+            StargazeAnchorError::Unauthorized
+        );
+        let escrow = &mut ctx.accounts.usdc_config;
+        escrow.admin = ctx.accounts.config.authority;
+        escrow.usdc_mint = usdc_mint;
+        escrow.router = router;
+        escrow.bump = ctx.bumps.usdc_config;
+
+        emit!(EscrowInitialized {
+            admin: escrow.admin,
+            usdc_mint,
+            router,
+        });
+        Ok(())
+    }
+
+    /// Open a new escrow session. The agent deposits `deposit` USDC into the
+    /// per-session vault. `spending_limit` caps cumulative settled spend
+    /// (must be <= `deposit`). `expires_at` is a unix timestamp after which
+    /// settles are rejected and the agent can self-close.
+    pub fn open_session(
+        ctx: Context<OpenSession>,
+        session_id: Pubkey,
+        deposit: u64,
+        spending_limit: u64,
+        expires_at: i64,
+    ) -> Result<()> {
+        let session_id = session_id.to_bytes();
+        require!(deposit > 0, StargazeAnchorError::StakeAmountZero);
+        require!(
+            spending_limit <= deposit,
+            StargazeAnchorError::SpendingLimitExceeded
+        );
+
+        let cpi_accounts = Transfer {
+            from: ctx.accounts.agent_ata.to_account_info(),
+            to: ctx.accounts.session_vault_ata.to_account_info(),
+            authority: ctx.accounts.agent.to_account_info(),
+        };
+        let cpi_ctx =
+            CpiContext::new(ctx.accounts.token_program.to_account_info(), cpi_accounts);
+        token::transfer(cpi_ctx, deposit)?;
+
+        let session = &mut ctx.accounts.session;
+        session.session_id = session_id;
+        session.agent_wallet = ctx.accounts.agent.key();
+        session.deposit = deposit;
+        session.spending_limit = spending_limit;
+        session.expires_at = expires_at;
+        session.settled = false;
+        session.total_spent = 0;
+        session.total_fee = 0;
+        session.bump = ctx.bumps.session;
+
+        emit!(SessionOpened {
+            session_id,
+            agent_wallet: session.agent_wallet,
+            deposit,
+            spending_limit,
+            expires_at,
+        });
+        Ok(())
+    }
+
+    /// Apply one voucher to the session: transfer (cumulative_amount - prev)
+    /// USDC from the session vault, split 98% to the provider ATA and 2% to
+    /// the singleton routing-fee vault. The voucher must be paired with an
+    /// Ed25519 precompile instruction directly preceding this one in the same
+    /// transaction; the program enforces `pubkey == session.agent_wallet`
+    /// and the message bytes match the args.
+    pub fn settle(
+        ctx: Context<Settle>,
+        session_id: Pubkey,
+        provider_id: Pubkey,
+        cumulative_amount: u64,
+        nonce: u64,
+        message_hash: Pubkey,
+    ) -> Result<()> {
+        let session_id = session_id.to_bytes();
+        let provider_id = provider_id.to_bytes();
+        let message_hash = message_hash.to_bytes();
+        // Router gate.
+        require_keys_eq!(
+            ctx.accounts.router.key(),
+            ctx.accounts.usdc_config.router,
+            StargazeAnchorError::UnauthorizedRouter
+        );
+        // Read session into a scope-limited block so we can release the
+        // immutable borrow before manually mutating cursor + voucher accounts.
+        let agent_wallet = ctx.accounts.session.agent_wallet;
+        let expires_at = ctx.accounts.session.expires_at;
+        let session_settled = ctx.accounts.session.settled;
+        let spending_limit = ctx.accounts.session.spending_limit;
+        require!(!session_settled, StargazeAnchorError::AlreadySettled);
+        let now = Clock::get()?.unix_timestamp;
+        require!(now < expires_at, StargazeAnchorError::SessionExpired);
+
+        // Build expected message bytes and assert the preceding Ed25519
+        // precompile instruction signed by `session.agent_wallet` carried
+        // exactly these bytes.
+        let expected_message = build_voucher_message_bytes(
+            &session_id,
+            &agent_wallet,
+            &provider_id,
+            cumulative_amount,
+            nonce,
+        );
+        // Recompute the message hash and assert it matches the one used as
+        // the `consumed_voucher` PDA seed. This pins replay protection to the
+        // canonical voucher bytes — no way to game the seed space.
+        let computed_hash = anchor_lang::solana_program::hash::hashv(&[expected_message.as_ref()]);
+        require!(
+            computed_hash.to_bytes() == message_hash,
+            StargazeAnchorError::WrongMessage
+        );
+        ed25519_verify::verify_preceding_ix(
+            &ctx.accounts.instructions_sysvar,
+            &agent_wallet,
+            &expected_message,
+        )?;
+
+        // Manually create voucher_cursor PDA on first use, and consumed_voucher
+        // PDA always. Both pay rent from `router`.
+        let cursor_bump = ctx.bumps.voucher_cursor;
+        let cursor_data_len: u64 = (8 + VoucherCursor::INIT_SPACE) as u64;
+        let mut last_cumulative: u64 = 0;
+        if ctx.accounts.voucher_cursor.data_is_empty() {
+            // Create cursor: system_program::create_account
+            let cursor_seeds: &[&[u8]] = &[
+                b"voucher_cursor",
+                session_id.as_ref(),
+                provider_id.as_ref(),
+                &[cursor_bump],
+            ];
+            let signer_seeds = &[cursor_seeds];
+            let rent = Rent::get()?.minimum_balance(cursor_data_len as usize);
+            let ix = anchor_lang::solana_program::system_instruction::create_account(
+                &ctx.accounts.router.key(),
+                &ctx.accounts.voucher_cursor.key(),
+                rent,
+                cursor_data_len,
+                &crate::ID,
+            );
+            anchor_lang::solana_program::program::invoke_signed(
+                &ix,
+                &[
+                    ctx.accounts.router.to_account_info(),
+                    ctx.accounts.voucher_cursor.to_account_info(),
+                    ctx.accounts.system_program.to_account_info(),
+                ],
+                signer_seeds,
+            )?;
+            // Write 8-byte discriminator for VoucherCursor.
+            let mut data = ctx.accounts.voucher_cursor.try_borrow_mut_data()?;
+            data[..8].copy_from_slice(VoucherCursor::DISCRIMINATOR);
+            // Zero-init the rest (last_cumulative=0, bump=cursor_bump).
+            data[8..16].copy_from_slice(&0u64.to_le_bytes());
+            data[16] = cursor_bump;
+        } else {
+            // Read last_cumulative from existing cursor.
+            let data = ctx.accounts.voucher_cursor.try_borrow_data()?;
+            require!(
+                data.len() >= 17 && &data[..8] == VoucherCursor::DISCRIMINATOR,
+                StargazeAnchorError::SessionAccountMismatch
+            );
+            last_cumulative = u64::from_le_bytes(data[8..16].try_into().unwrap());
+        }
+
+        require!(
+            cumulative_amount > last_cumulative,
+            StargazeAnchorError::NonMonotonic
+        );
+        require!(
+            cumulative_amount <= spending_limit,
+            StargazeAnchorError::SpendingLimitExceeded
+        );
+
+        // Create consumed_voucher PDA (always; replay protection).
+        let voucher_bump = ctx.bumps.consumed_voucher;
+        let voucher_data_len: u64 = (8 + ConsumedVoucher::INIT_SPACE) as u64;
+        require!(
+            ctx.accounts.consumed_voucher.data_is_empty(),
+            StargazeAnchorError::AlreadySettled
+        );
+        let voucher_seeds: &[&[u8]] = &[
+            b"voucher",
+            session_id.as_ref(),
+            message_hash.as_ref(),
+            &[voucher_bump],
+        ];
+        let signer_seeds = &[voucher_seeds];
+        let voucher_rent = Rent::get()?.minimum_balance(voucher_data_len as usize);
+        let ix = anchor_lang::solana_program::system_instruction::create_account(
+            &ctx.accounts.router.key(),
+            &ctx.accounts.consumed_voucher.key(),
+            voucher_rent,
+            voucher_data_len,
+            &crate::ID,
+        );
+        anchor_lang::solana_program::program::invoke_signed(
+            &ix,
+            &[
+                ctx.accounts.router.to_account_info(),
+                ctx.accounts.consumed_voucher.to_account_info(),
+                ctx.accounts.system_program.to_account_info(),
+            ],
+            signer_seeds,
+        )?;
+        {
+            let mut data = ctx.accounts.consumed_voucher.try_borrow_mut_data()?;
+            data[..8].copy_from_slice(ConsumedVoucher::DISCRIMINATOR);
+            data[8] = voucher_bump;
+        }
+
+        let delta = cumulative_amount
+            .checked_sub(last_cumulative)
+            .ok_or(StargazeAnchorError::NumericalOverflow)?;
+        let fee = mul_bps(delta, ROUTING_FEE_BPS)?;
+        let to_provider = delta
+            .checked_sub(fee)
+            .ok_or(StargazeAnchorError::NumericalOverflow)?;
+
+        // PDA seeds for session_vault_authority signer.
+        let vault_bump = ctx.bumps.session_vault_authority;
+        let seeds: &[&[u8]] = &[b"session_vault", session_id.as_ref(), &[vault_bump]];
+        let signer_seeds = &[seeds];
+
+        if to_provider > 0 {
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.session_vault_ata.to_account_info(),
+                to: ctx.accounts.provider_ata.to_account_info(),
+                authority: ctx.accounts.session_vault_authority.to_account_info(),
+            };
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                signer_seeds,
+            );
+            token::transfer(cpi_ctx, to_provider)?;
+        }
+
+        if fee > 0 {
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.session_vault_ata.to_account_info(),
+                to: ctx.accounts.routing_fee_vault_ata.to_account_info(),
+                authority: ctx.accounts.session_vault_authority.to_account_info(),
+            };
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                signer_seeds,
+            );
+            token::transfer(cpi_ctx, fee)?;
+        }
+
+        // Update cursor + session accumulators.
+        {
+            let mut cursor_data = ctx.accounts.voucher_cursor.try_borrow_mut_data()?;
+            cursor_data[8..16].copy_from_slice(&cumulative_amount.to_le_bytes());
+            // bump unchanged
+        }
+        let session = &mut ctx.accounts.session;
+        session.total_spent = session
+            .total_spent
+            .checked_add(to_provider)
+            .ok_or(StargazeAnchorError::NumericalOverflow)?;
+        session.total_fee = session
+            .total_fee
+            .checked_add(fee)
+            .ok_or(StargazeAnchorError::NumericalOverflow)?;
+
+        emit!(VoucherSettled {
+            session_id,
+            provider_id,
+            cumulative_amount,
+            delta,
+            to_provider,
+            fee,
+            nonce,
+        });
+        Ok(())
+    }
+
+    /// Close the session: pay any remaining deposit back to the agent.
+    /// Callable by the router at any time; callable by the agent only after
+    /// `expires_at`. The Session account itself is not closed — kept on-chain
+    /// for the indexer.
+    pub fn close_session(
+        ctx: Context<CloseSession>,
+        session_id: Pubkey,
+    ) -> Result<()> {
+        let session_id = session_id.to_bytes();
+        let session = &mut ctx.accounts.session;
+        require!(!session.settled, StargazeAnchorError::AlreadySettled);
+
+        let caller = ctx.accounts.caller.key();
+        let is_router = caller == ctx.accounts.usdc_config.router;
+        let is_agent = caller == session.agent_wallet;
+        require!(is_router || is_agent, StargazeAnchorError::Unauthorized);
+
+        if is_agent && !is_router {
+            let now = Clock::get()?.unix_timestamp;
+            require!(
+                now >= session.expires_at,
+                StargazeAnchorError::SessionNotExpired
+            );
+        }
+
+        let spent_plus_fee = session
+            .total_spent
+            .checked_add(session.total_fee)
+            .ok_or(StargazeAnchorError::NumericalOverflow)?;
+        let refund = session
+            .deposit
+            .checked_sub(spent_plus_fee)
+            .ok_or(StargazeAnchorError::NumericalOverflow)?;
+
+        if refund > 0 {
+            let vault_bump = ctx.bumps.session_vault_authority;
+            let seeds: &[&[u8]] = &[b"session_vault", session_id.as_ref(), &[vault_bump]];
+            let signer_seeds = &[seeds];
+            let cpi_accounts = Transfer {
+                from: ctx.accounts.session_vault_ata.to_account_info(),
+                to: ctx.accounts.agent_ata.to_account_info(),
+                authority: ctx.accounts.session_vault_authority.to_account_info(),
+            };
+            let cpi_ctx = CpiContext::new_with_signer(
+                ctx.accounts.token_program.to_account_info(),
+                cpi_accounts,
+                signer_seeds,
+            );
+            token::transfer(cpi_ctx, refund)?;
+        }
+
+        session.settled = true;
+
+        emit!(SessionSettled {
+            session_id,
+            total_to_providers: session.total_spent,
+            routing_fee: session.total_fee,
+            refund_to_agent: refund,
+        });
+        Ok(())
+    }
 }
 
 #[derive(Accounts)]
@@ -1129,4 +1515,423 @@ pub enum StargazeAnchorError {
     CooldownActive,
     #[msg("No cooldown is currently in progress for this stake account.")]
     NoCooldownInProgress,
+    // ============ ESCROW errors ============
+    #[msg("Caller is not the configured router.")]
+    UnauthorizedRouter,
+    #[msg("Voucher signer does not match the session's agent wallet.")]
+    WrongSigner,
+    #[msg("Voucher message bytes in the precompile do not match the instruction args.")]
+    WrongMessage,
+    #[msg("Missing or malformed Ed25519 precompile instruction directly before settle.")]
+    MissingPrecompile,
+    #[msg("Voucher cumulative amount is not strictly greater than the previous value.")]
+    NonMonotonic,
+    #[msg("Cumulative spend would exceed the session's spending limit.")]
+    SpendingLimitExceeded,
+    #[msg("Session has already been settled / closed.")]
+    AlreadySettled,
+    #[msg("Session expiry has passed.")]
+    SessionExpired,
+    #[msg("Session expiry has not yet passed; caller must be the router.")]
+    SessionNotExpired,
+    #[msg("Numerical overflow.")]
+    NumericalOverflow,
+    #[msg("Session account or vault authority mismatch.")]
+    SessionAccountMismatch,
+}
+
+// ============ ESCROW: accounts ============
+
+#[derive(Accounts)]
+pub struct InitEscrow<'info> {
+    #[account(mut)]
+    pub admin: Signer<'info>,
+    #[account(seeds = [b"config"], bump = config.bump)]
+    pub config: Account<'info, Config>,
+    #[account(
+        init,
+        payer = admin,
+        space = 8 + UsdcConfig::INIT_SPACE,
+        seeds = [b"usdc_config"],
+        bump
+    )]
+    pub usdc_config: Account<'info, UsdcConfig>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(session_id: Pubkey)]
+pub struct OpenSession<'info> {
+    #[account(mut)]
+    pub agent: Signer<'info>,
+    #[account(seeds = [b"usdc_config"], bump = usdc_config.bump)]
+    pub usdc_config: Account<'info, UsdcConfig>,
+    #[account(
+        init,
+        payer = agent,
+        space = 8 + Session::INIT_SPACE,
+        seeds = [b"session", session_id.as_ref()],
+        bump
+    )]
+    pub session: Account<'info, Session>,
+    /// CHECK: PDA authority for the per-session USDC vault. Seeds-verified.
+    #[account(
+        seeds = [b"session_vault", session_id.as_ref()],
+        bump
+    )]
+    pub session_vault_authority: UncheckedAccount<'info>,
+    #[account(
+        constraint = usdc_mint.key() == usdc_config.usdc_mint @ StargazeAnchorError::SessionAccountMismatch
+    )]
+    pub usdc_mint: Account<'info, Mint>,
+    #[account(
+        init_if_needed,
+        payer = agent,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = session_vault_authority,
+    )]
+    pub session_vault_ata: Account<'info, TokenAccount>,
+    #[account(
+        mut,
+        constraint = agent_ata.owner == agent.key() @ StargazeAnchorError::Unauthorized,
+        constraint = agent_ata.mint == usdc_mint.key() @ StargazeAnchorError::SessionAccountMismatch
+    )]
+    pub agent_ata: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(
+    session_id: Pubkey,
+    provider_id: Pubkey,
+    cumulative_amount: u64,
+    nonce: u64,
+    message_hash: Pubkey
+)]
+pub struct Settle<'info> {
+    /// The router pays rent for the `consumed_voucher` PDA. Treated as
+    /// protocol overhead.
+    #[account(mut)]
+    pub router: Signer<'info>,
+    #[account(seeds = [b"usdc_config"], bump = usdc_config.bump)]
+    pub usdc_config: Box<Account<'info, UsdcConfig>>,
+    #[account(
+        mut,
+        seeds = [b"session", session_id.as_ref()],
+        bump = session.bump
+    )]
+    pub session: Box<Account<'info, Session>>,
+    /// CHECK: PDA authority for the per-session USDC vault. Seeds-verified.
+    #[account(
+        seeds = [b"session_vault", session_id.as_ref()],
+        bump
+    )]
+    pub session_vault_authority: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        constraint = session_vault_ata.owner == session_vault_authority.key() @ StargazeAnchorError::SessionAccountMismatch,
+        constraint = session_vault_ata.mint == usdc_config.usdc_mint @ StargazeAnchorError::SessionAccountMismatch
+    )]
+    pub session_vault_ata: Box<Account<'info, TokenAccount>>,
+    #[account(
+        mut,
+        constraint = provider_ata.mint == usdc_config.usdc_mint @ StargazeAnchorError::SessionAccountMismatch
+    )]
+    pub provider_ata: Box<Account<'info, TokenAccount>>,
+    /// CHECK: PDA authority for the singleton routing-fee USDC vault.
+    #[account(
+        seeds = [b"routing_fee_vault"],
+        bump
+    )]
+    pub routing_fee_vault_authority: UncheckedAccount<'info>,
+    #[account(
+        constraint = usdc_mint.key() == usdc_config.usdc_mint @ StargazeAnchorError::SessionAccountMismatch
+    )]
+    pub usdc_mint: Box<Account<'info, Mint>>,
+    #[account(
+        init_if_needed,
+        payer = router,
+        associated_token::mint = usdc_mint,
+        associated_token::authority = routing_fee_vault_authority,
+    )]
+    pub routing_fee_vault_ata: Box<Account<'info, TokenAccount>>,
+    /// CHECK: address verified via seeds; created lazily by the program via
+    /// system_program CPI on first use.
+    #[account(
+        mut,
+        seeds = [b"voucher_cursor", session_id.as_ref(), provider_id.as_ref()],
+        bump
+    )]
+    pub voucher_cursor: UncheckedAccount<'info>,
+    /// Replay-protection marker, init-created per (session_id, message_hash)
+    /// — second use of the same voucher hits `AccountAlreadyInUse` here.
+    /// `message_hash` is an instruction arg that the handler asserts equals
+    /// `sha256(build_voucher_message_bytes(...))`, so replay protection still
+    /// keys off the canonical voucher bytes.
+    /// CHECK: address is verified via seeds; init handled manually.
+    #[account(
+        mut,
+        seeds = [b"voucher", session_id.as_ref(), message_hash.as_ref()],
+        bump
+    )]
+    pub consumed_voucher: UncheckedAccount<'info>,
+    /// CHECK: Address-pinned to the instructions sysvar; read by `ed25519_verify`.
+    #[account(address = anchor_lang::solana_program::sysvar::instructions::ID)]
+    pub instructions_sysvar: UncheckedAccount<'info>,
+    pub token_program: Program<'info, Token>,
+    pub associated_token_program: Program<'info, AssociatedToken>,
+    pub system_program: Program<'info, System>,
+}
+
+#[derive(Accounts)]
+#[instruction(session_id: Pubkey)]
+pub struct CloseSession<'info> {
+    #[account(mut)]
+    pub caller: Signer<'info>,
+    #[account(seeds = [b"usdc_config"], bump = usdc_config.bump)]
+    pub usdc_config: Account<'info, UsdcConfig>,
+    #[account(
+        mut,
+        seeds = [b"session", session_id.as_ref()],
+        bump = session.bump
+    )]
+    pub session: Account<'info, Session>,
+    /// CHECK: PDA authority for the per-session USDC vault. Seeds-verified.
+    #[account(
+        seeds = [b"session_vault", session_id.as_ref()],
+        bump
+    )]
+    pub session_vault_authority: UncheckedAccount<'info>,
+    #[account(
+        mut,
+        constraint = session_vault_ata.owner == session_vault_authority.key() @ StargazeAnchorError::SessionAccountMismatch,
+        constraint = session_vault_ata.mint == usdc_config.usdc_mint @ StargazeAnchorError::SessionAccountMismatch
+    )]
+    pub session_vault_ata: Account<'info, TokenAccount>,
+    /// CHECK: The agent's USDC ATA. Mint+owner verified against the session
+    /// record.
+    #[account(
+        mut,
+        constraint = agent_ata.owner == session.agent_wallet @ StargazeAnchorError::SessionAccountMismatch,
+        constraint = agent_ata.mint == usdc_config.usdc_mint @ StargazeAnchorError::SessionAccountMismatch
+    )]
+    pub agent_ata: Account<'info, TokenAccount>,
+    pub token_program: Program<'info, Token>,
+}
+
+// ============ ESCROW: state ============
+
+#[account]
+#[derive(InitSpace)]
+pub struct UsdcConfig {
+    pub admin: Pubkey,
+    pub usdc_mint: Pubkey,
+    pub router: Pubkey,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct Session {
+    pub session_id: [u8; 32],
+    pub agent_wallet: Pubkey,
+    pub deposit: u64,
+    pub spending_limit: u64,
+    pub expires_at: i64,
+    pub settled: bool,
+    pub total_spent: u64,
+    pub total_fee: u64,
+    pub bump: u8,
+}
+
+#[account]
+#[derive(InitSpace)]
+pub struct VoucherCursor {
+    pub last_cumulative: u64,
+    pub bump: u8,
+}
+
+/// PDA marker for replay protection. Anchor refuses to re-`init` a duplicate.
+/// Stores the seed bump so re-derivation is cheap if/when we need it; the
+/// `last_cumulative` etc lives on the `VoucherCursor`.
+#[account]
+#[derive(InitSpace)]
+pub struct ConsumedVoucher {
+    pub bump: u8,
+}
+
+// ============ ESCROW: events ============
+
+#[event]
+pub struct EscrowInitialized {
+    pub admin: Pubkey,
+    pub usdc_mint: Pubkey,
+    pub router: Pubkey,
+}
+
+#[event]
+pub struct SessionOpened {
+    pub session_id: [u8; 32],
+    pub agent_wallet: Pubkey,
+    pub deposit: u64,
+    pub spending_limit: u64,
+    pub expires_at: i64,
+}
+
+#[event]
+pub struct VoucherSettled {
+    pub session_id: [u8; 32],
+    pub provider_id: [u8; 32],
+    pub cumulative_amount: u64,
+    pub delta: u64,
+    pub to_provider: u64,
+    pub fee: u64,
+    pub nonce: u64,
+}
+
+#[event]
+pub struct SessionSettled {
+    pub session_id: [u8; 32],
+    pub total_to_providers: u64,
+    pub routing_fee: u64,
+    pub refund_to_agent: u64,
+}
+
+// ============ ESCROW: helpers ============
+
+/// Build the canonical 133-byte voucher message:
+///   `b"StargazeMPP/Voucher/1" || session_id || agent_wallet || provider_id
+///    || cumulative_amount_le8 || nonce_le8`.
+pub fn build_voucher_message_bytes(
+    session_id: &[u8; 32],
+    agent_wallet: &Pubkey,
+    provider_id: &[u8; 32],
+    cumulative_amount: u64,
+    nonce: u64,
+) -> [u8; 133] {
+    let mut buf = [0u8; 133];
+    buf[..21].copy_from_slice(&VOUCHER_DOMAIN_TAG);
+    buf[21..53].copy_from_slice(session_id);
+    buf[53..85].copy_from_slice(&agent_wallet.to_bytes());
+    buf[85..117].copy_from_slice(provider_id);
+    buf[117..125].copy_from_slice(&cumulative_amount.to_le_bytes());
+    buf[125..133].copy_from_slice(&nonce.to_le_bytes());
+    buf
+}
+
+/// Multiply `amount` by `bps` basis points (1 bps = 1/10_000).
+fn mul_bps(amount: u64, bps: u16) -> Result<u64> {
+    let product = (amount as u128)
+        .checked_mul(bps as u128)
+        .ok_or(StargazeAnchorError::NumericalOverflow)?;
+    let result = product
+        .checked_div(10_000)
+        .ok_or(StargazeAnchorError::NumericalOverflow)?;
+    u64::try_from(result).map_err(|_| StargazeAnchorError::NumericalOverflow.into())
+}
+
+/// Parse the Ed25519 precompile instruction directly preceding the current
+/// program ix and assert it covers exactly `expected_message` signed by
+/// `expected_pubkey`. The single message + single signature + single public
+/// key layout is the only one the off-chain SDK emits.
+pub mod ed25519_verify {
+    use super::*;
+    use anchor_lang::solana_program::ed25519_program;
+    use anchor_lang::solana_program::sysvar::instructions::{
+        load_current_index_checked, load_instruction_at_checked,
+    };
+
+    /// Precompile data layout (single-signature mode):
+    ///   `[num_signatures: u8 = 1][padding: u8 = 0][offsets: 14 bytes]
+    ///    [pubkey: 32][signature: 64][message: variable]`.
+    ///
+    /// `*_instruction_index` fields inside `offsets` must equal `u16::MAX`
+    /// (i.e. "data is inside this same ix"). Offsets are little-endian u16s.
+    const NUM_SIGS_OFFSET: usize = 0;
+    const OFFSETS_START: usize = 2;
+    const SIG_OFFSETS_LEN: usize = 14;
+    const DATA_START: usize = OFFSETS_START + SIG_OFFSETS_LEN; // 16
+    const PUBKEY_LEN: usize = 32;
+    const SIGNATURE_LEN: usize = 64;
+
+    pub fn verify_preceding_ix(
+        instructions_sysvar: &UncheckedAccount,
+        expected_pubkey: &Pubkey,
+        expected_message: &[u8],
+    ) -> Result<()> {
+        let info: &AccountInfo = instructions_sysvar;
+        let current_index = load_current_index_checked(info)
+            .map_err(|_| StargazeAnchorError::MissingPrecompile)?;
+        require!(current_index > 0, StargazeAnchorError::MissingPrecompile);
+
+        let prev_ix = load_instruction_at_checked((current_index - 1) as usize, info)
+            .map_err(|_| StargazeAnchorError::MissingPrecompile)?;
+        require_keys_eq!(
+            prev_ix.program_id,
+            ed25519_program::ID,
+            StargazeAnchorError::MissingPrecompile
+        );
+
+        let data = &prev_ix.data;
+        require!(
+            data.len() >= DATA_START + PUBKEY_LEN + SIGNATURE_LEN,
+            StargazeAnchorError::MissingPrecompile
+        );
+        // Exactly one signature.
+        require!(
+            data[NUM_SIGS_OFFSET] == 1,
+            StargazeAnchorError::MissingPrecompile
+        );
+
+        let read_u16 = |off: usize| -> u16 {
+            u16::from_le_bytes([data[off], data[off + 1]])
+        };
+        let signature_offset = read_u16(OFFSETS_START) as usize;
+        let signature_ix_index = read_u16(OFFSETS_START + 2);
+        let public_key_offset = read_u16(OFFSETS_START + 4) as usize;
+        let public_key_ix_index = read_u16(OFFSETS_START + 6);
+        let message_data_offset = read_u16(OFFSETS_START + 8) as usize;
+        let message_data_size = read_u16(OFFSETS_START + 10) as usize;
+        let message_ix_index = read_u16(OFFSETS_START + 12);
+
+        // All three must point into the precompile's own ix data.
+        require!(
+            signature_ix_index == u16::MAX
+                && public_key_ix_index == u16::MAX
+                && message_ix_index == u16::MAX,
+            StargazeAnchorError::MissingPrecompile
+        );
+
+        // Sanity-check the offsets land inside the data buffer.
+        require!(
+            public_key_offset + PUBKEY_LEN <= data.len()
+                && signature_offset + SIGNATURE_LEN <= data.len()
+                && message_data_offset + message_data_size <= data.len(),
+            StargazeAnchorError::MissingPrecompile
+        );
+
+        let pubkey_bytes = &data[public_key_offset..public_key_offset + PUBKEY_LEN];
+        let message_bytes =
+            &data[message_data_offset..message_data_offset + message_data_size];
+
+        let pk_array: [u8; 32] = pubkey_bytes
+            .try_into()
+            .map_err(|_| StargazeAnchorError::WrongSigner)?;
+        let signer_key = Pubkey::new_from_array(pk_array);
+        require_keys_eq!(
+            signer_key,
+            *expected_pubkey,
+            StargazeAnchorError::WrongSigner
+        );
+
+        // Compare the message bytes by value.
+        require!(
+            message_bytes == expected_message,
+            StargazeAnchorError::WrongMessage
+        );
+
+        Ok(())
+    }
 }

@@ -7,6 +7,14 @@
     "description": "Solana-side mirror of StargazeRegistry for Solana-native providers, plus x402 USDC receipt verification."
   },
   "docs": [
+    "Conversion of routing-fee USDC into $GAZE for the burn ladder is handled",
+    "in a separate (admin-only) instruction `convert_routing_fees_to_gaze`",
+    "which is **NOT** in scope here. The planned flow is:",
+    "1. Drain `routing_fee_vault_ata` (USDC).",
+    "2. Swap USDC -> $GAZE via Jupiter (or comparable router).",
+    "3. CPI into `process_routing_fee_burn` with the resulting $GAZE.",
+    "Until that instruction lands, settled routing fees accumulate as USDC",
+    "in the vault.",
     "StargazeAnchor — Solana-side mirror of the Tempo `StargazeRegistry`.",
     "",
     "Responsibilities:",
@@ -292,6 +300,129 @@
       ]
     },
     {
+      "name": "close_session",
+      "docs": [
+        "Close the session: pay any remaining deposit back to the agent.",
+        "Callable by the router at any time; callable by the agent only after",
+        "`expires_at`. The Session account itself is not closed — kept on-chain",
+        "for the indexer."
+      ],
+      "discriminator": [
+        68,
+        114,
+        178,
+        140,
+        222,
+        38,
+        248,
+        211
+      ],
+      "accounts": [
+        {
+          "name": "caller",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "session_vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "session_vault_ata",
+          "writable": true
+        },
+        {
+          "name": "agent_ata",
+          "docs": [
+            "record."
+          ],
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        }
+      ],
+      "args": [
+        {
+          "name": "session_id",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "dispatch_reputation_to_tempo",
       "docs": [
         "Dispatch a reputation snapshot for `provider_id` to the Tempo receiver",
@@ -515,6 +646,87 @@
       ]
     },
     {
+      "name": "init_escrow",
+      "docs": [
+        "One-shot initialiser for the escrow side: records the USDC mint and the",
+        "router pubkey that is permitted to call `settle`. The caller must be",
+        "the existing `Config.authority` admin."
+      ],
+      "discriminator": [
+        70,
+        46,
+        40,
+        23,
+        6,
+        11,
+        81,
+        139
+      ],
+      "accounts": [
+        {
+          "name": "admin",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_config",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "usdc_mint",
+          "type": "pubkey"
+        },
+        {
+          "name": "router",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "init_staking",
       "docs": [
         "Initialise the `StakingConfig` singleton. Admin only (must match",
@@ -653,6 +865,235 @@
         {
           "name": "authority",
           "type": "pubkey"
+        }
+      ]
+    },
+    {
+      "name": "open_session",
+      "docs": [
+        "Open a new escrow session. The agent deposits `deposit` USDC into the",
+        "per-session vault. `spending_limit` caps cumulative settled spend",
+        "(must be <= `deposit`). `expires_at` is a unix timestamp after which",
+        "settles are rejected and the agent can self-close."
+      ],
+      "discriminator": [
+        130,
+        54,
+        124,
+        7,
+        236,
+        20,
+        104,
+        104
+      ],
+      "accounts": [
+        {
+          "name": "agent",
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "session_vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "session_vault_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "session_vault_authority"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "usdc_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "agent_ata",
+          "writable": true
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "session_id",
+          "type": "pubkey"
+        },
+        {
+          "name": "deposit",
+          "type": "u64"
+        },
+        {
+          "name": "spending_limit",
+          "type": "u64"
+        },
+        {
+          "name": "expires_at",
+          "type": "i64"
         }
       ]
     },
@@ -1403,6 +1844,355 @@
       ]
     },
     {
+      "name": "settle",
+      "docs": [
+        "Apply one voucher to the session: transfer (cumulative_amount - prev)",
+        "USDC from the session vault, split 98% to the provider ATA and 2% to",
+        "the singleton routing-fee vault. The voucher must be paired with an",
+        "Ed25519 precompile instruction directly preceding this one in the same",
+        "transaction; the program enforces `pubkey == session.agent_wallet`",
+        "and the message bytes match the args."
+      ],
+      "discriminator": [
+        175,
+        42,
+        185,
+        87,
+        144,
+        131,
+        102,
+        212
+      ],
+      "accounts": [
+        {
+          "name": "router",
+          "docs": [
+            "The router pays rent for the `consumed_voucher` PDA. Treated as",
+            "protocol overhead."
+          ],
+          "writable": true,
+          "signer": true
+        },
+        {
+          "name": "usdc_config",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  117,
+                  115,
+                  100,
+                  99,
+                  95,
+                  99,
+                  111,
+                  110,
+                  102,
+                  105,
+                  103
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "session",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "session_vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  115,
+                  101,
+                  115,
+                  115,
+                  105,
+                  111,
+                  110,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "session_vault_ata",
+          "writable": true
+        },
+        {
+          "name": "provider_ata",
+          "writable": true
+        },
+        {
+          "name": "routing_fee_vault_authority",
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  114,
+                  111,
+                  117,
+                  116,
+                  105,
+                  110,
+                  103,
+                  95,
+                  102,
+                  101,
+                  101,
+                  95,
+                  118,
+                  97,
+                  117,
+                  108,
+                  116
+                ]
+              }
+            ]
+          }
+        },
+        {
+          "name": "usdc_mint"
+        },
+        {
+          "name": "routing_fee_vault_ata",
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "account",
+                "path": "routing_fee_vault_authority"
+              },
+              {
+                "kind": "const",
+                "value": [
+                  6,
+                  221,
+                  246,
+                  225,
+                  215,
+                  101,
+                  161,
+                  147,
+                  217,
+                  203,
+                  225,
+                  70,
+                  206,
+                  235,
+                  121,
+                  172,
+                  28,
+                  180,
+                  133,
+                  237,
+                  95,
+                  91,
+                  55,
+                  145,
+                  58,
+                  140,
+                  245,
+                  133,
+                  126,
+                  255,
+                  0,
+                  169
+                ]
+              },
+              {
+                "kind": "account",
+                "path": "usdc_mint"
+              }
+            ],
+            "program": {
+              "kind": "const",
+              "value": [
+                140,
+                151,
+                37,
+                143,
+                78,
+                36,
+                137,
+                241,
+                187,
+                61,
+                16,
+                41,
+                20,
+                142,
+                13,
+                131,
+                11,
+                90,
+                19,
+                153,
+                218,
+                255,
+                16,
+                132,
+                4,
+                142,
+                123,
+                216,
+                219,
+                233,
+                248,
+                89
+              ]
+            }
+          }
+        },
+        {
+          "name": "voucher_cursor",
+          "docs": [
+            "system_program CPI on first use."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  117,
+                  99,
+                  104,
+                  101,
+                  114,
+                  95,
+                  99,
+                  117,
+                  114,
+                  115,
+                  111,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              },
+              {
+                "kind": "arg",
+                "path": "provider_id"
+              }
+            ]
+          }
+        },
+        {
+          "name": "consumed_voucher",
+          "docs": [
+            "Replay-protection marker, init-created per (session_id, message_hash)",
+            "— second use of the same voucher hits `AccountAlreadyInUse` here.",
+            "`message_hash` is an instruction arg that the handler asserts equals",
+            "`sha256(build_voucher_message_bytes(...))`, so replay protection still",
+            "keys off the canonical voucher bytes."
+          ],
+          "writable": true,
+          "pda": {
+            "seeds": [
+              {
+                "kind": "const",
+                "value": [
+                  118,
+                  111,
+                  117,
+                  99,
+                  104,
+                  101,
+                  114
+                ]
+              },
+              {
+                "kind": "arg",
+                "path": "session_id"
+              },
+              {
+                "kind": "arg",
+                "path": "message_hash"
+              }
+            ]
+          }
+        },
+        {
+          "name": "instructions_sysvar",
+          "address": "Sysvar1nstructions1111111111111111111111111"
+        },
+        {
+          "name": "token_program",
+          "address": "TokenkegQfeZyiNwAJbNbGKPFXCWuBvf9Ss623VQ5DA"
+        },
+        {
+          "name": "associated_token_program",
+          "address": "ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL"
+        },
+        {
+          "name": "system_program",
+          "address": "11111111111111111111111111111111"
+        }
+      ],
+      "args": [
+        {
+          "name": "session_id",
+          "type": "pubkey"
+        },
+        {
+          "name": "provider_id",
+          "type": "pubkey"
+        },
+        {
+          "name": "cumulative_amount",
+          "type": "u64"
+        },
+        {
+          "name": "nonce",
+          "type": "u64"
+        },
+        {
+          "name": "message_hash",
+          "type": "pubkey"
+        }
+      ]
+    },
+    {
       "name": "slash",
       "docs": [
         "Admin-only slash. Transfers up to `amount` base units from the pool",
@@ -1721,6 +2511,19 @@
       ]
     },
     {
+      "name": "Session",
+      "discriminator": [
+        243,
+        81,
+        72,
+        115,
+        214,
+        188,
+        72,
+        144
+      ]
+    },
+    {
       "name": "StakeAccount",
       "discriminator": [
         80,
@@ -1744,6 +2547,19 @@
         57,
         84,
         25
+      ]
+    },
+    {
+      "name": "UsdcConfig",
+      "discriminator": [
+        48,
+        197,
+        208,
+        34,
+        24,
+        38,
+        56,
+        253
       ]
     },
     {
@@ -1772,6 +2588,19 @@
         147,
         182,
         94
+      ]
+    },
+    {
+      "name": "EscrowInitialized",
+      "discriminator": [
+        222,
+        186,
+        157,
+        47,
+        145,
+        142,
+        176,
+        248
       ]
     },
     {
@@ -1837,6 +2666,32 @@
         213,
         118,
         110
+      ]
+    },
+    {
+      "name": "SessionOpened",
+      "discriminator": [
+        34,
+        79,
+        77,
+        95,
+        195,
+        207,
+        104,
+        223
+      ]
+    },
+    {
+      "name": "SessionSettled",
+      "discriminator": [
+        127,
+        161,
+        59,
+        136,
+        23,
+        168,
+        191,
+        149
       ]
     },
     {
@@ -1931,6 +2786,19 @@
       ]
     },
     {
+      "name": "VoucherSettled",
+      "discriminator": [
+        17,
+        2,
+        27,
+        53,
+        94,
+        38,
+        40,
+        123
+      ]
+    },
+    {
       "name": "X402ReceiptRecorded",
       "discriminator": [
         37,
@@ -1984,6 +2852,61 @@
       "code": 6007,
       "name": "NoCooldownInProgress",
       "msg": "No cooldown is currently in progress for this stake account."
+    },
+    {
+      "code": 6008,
+      "name": "UnauthorizedRouter",
+      "msg": "Caller is not the configured router."
+    },
+    {
+      "code": 6009,
+      "name": "WrongSigner",
+      "msg": "Voucher signer does not match the session's agent wallet."
+    },
+    {
+      "code": 6010,
+      "name": "WrongMessage",
+      "msg": "Voucher message bytes in the precompile do not match the instruction args."
+    },
+    {
+      "code": 6011,
+      "name": "MissingPrecompile",
+      "msg": "Missing or malformed Ed25519 precompile instruction directly before settle."
+    },
+    {
+      "code": 6012,
+      "name": "NonMonotonic",
+      "msg": "Voucher cumulative amount is not strictly greater than the previous value."
+    },
+    {
+      "code": 6013,
+      "name": "SpendingLimitExceeded",
+      "msg": "Cumulative spend would exceed the session's spending limit."
+    },
+    {
+      "code": 6014,
+      "name": "AlreadySettled",
+      "msg": "Session has already been settled / closed."
+    },
+    {
+      "code": 6015,
+      "name": "SessionExpired",
+      "msg": "Session expiry has passed."
+    },
+    {
+      "code": 6016,
+      "name": "SessionNotExpired",
+      "msg": "Session expiry has not yet passed; caller must be the router."
+    },
+    {
+      "code": 6017,
+      "name": "NumericalOverflow",
+      "msg": "Numerical overflow."
+    },
+    {
+      "code": 6018,
+      "name": "SessionAccountMismatch",
+      "msg": "Session account or vault authority mismatch."
     }
   ],
   "types": [
@@ -2040,6 +2963,26 @@
           {
             "name": "bump",
             "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "EscrowInitialized",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "router",
+            "type": "pubkey"
           }
         ]
       }
@@ -2212,6 +3155,117 @@
           },
           {
             "name": "to_stakers",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Session",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "agent_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "deposit",
+            "type": "u64"
+          },
+          {
+            "name": "spending_limit",
+            "type": "u64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          },
+          {
+            "name": "settled",
+            "type": "bool"
+          },
+          {
+            "name": "total_spent",
+            "type": "u64"
+          },
+          {
+            "name": "total_fee",
+            "type": "u64"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionOpened",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "agent_wallet",
+            "type": "pubkey"
+          },
+          {
+            "name": "deposit",
+            "type": "u64"
+          },
+          {
+            "name": "spending_limit",
+            "type": "u64"
+          },
+          {
+            "name": "expires_at",
+            "type": "i64"
+          }
+        ]
+      }
+    },
+    {
+      "name": "SessionSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "total_to_providers",
+            "type": "u64"
+          },
+          {
+            "name": "routing_fee",
+            "type": "u64"
+          },
+          {
+            "name": "refund_to_agent",
             "type": "u64"
           }
         ]
@@ -2492,6 +3546,76 @@
       }
     },
     {
+      "name": "UsdcConfig",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "admin",
+            "type": "pubkey"
+          },
+          {
+            "name": "usdc_mint",
+            "type": "pubkey"
+          },
+          {
+            "name": "router",
+            "type": "pubkey"
+          },
+          {
+            "name": "bump",
+            "type": "u8"
+          }
+        ]
+      }
+    },
+    {
+      "name": "VoucherSettled",
+      "type": {
+        "kind": "struct",
+        "fields": [
+          {
+            "name": "session_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "provider_id",
+            "type": {
+              "array": [
+                "u8",
+                32
+              ]
+            }
+          },
+          {
+            "name": "cumulative_amount",
+            "type": "u64"
+          },
+          {
+            "name": "delta",
+            "type": "u64"
+          },
+          {
+            "name": "to_provider",
+            "type": "u64"
+          },
+          {
+            "name": "fee",
+            "type": "u64"
+          },
+          {
+            "name": "nonce",
+            "type": "u64"
+          }
+        ]
+      }
+    },
+    {
       "name": "X402Receipt",
       "type": {
         "kind": "struct",
@@ -2591,6 +3715,15 @@
       "value": "50000000"
     },
     {
+      "name": "ROUTING_FEE_BPS",
+      "docs": [
+        "Routing-fee basis points. 2% of every voucher amount is diverted from the",
+        "provider payout into the singleton routing-fee USDC vault."
+      ],
+      "type": "u16",
+      "value": "200"
+    },
+    {
       "name": "VERIFIED_STAKE_DEFAULT",
       "docs": [
         "Stake threshold for a provider to be considered \"verified\"",
@@ -2608,6 +3741,32 @@
       ],
       "type": "u64",
       "value": "1000000"
+    },
+    {
+      "name": "VOUCHER_DOMAIN_TAG",
+      "docs": [
+        "Domain separator for the off-chain voucher signing scheme. Twenty-one",
+        "ASCII bytes; surfaced through the IDL so the off-chain SDK can copy the",
+        "same literal byte-for-byte. The voucher message starts with this prefix",
+        "followed by `session_id || agent_wallet || provider_id ||",
+        "cumulative_amount_le || nonce_le` for a total of 133 bytes."
+      ],
+      "type": {
+        "array": [
+          "u8",
+          21
+        ]
+      },
+      "value": "[83, 116, 97, 114, 103, 97, 122, 101, 77, 80, 80, 47, 86, 111, 117, 99, 104, 101, 114, 47, 49]"
+    },
+    {
+      "name": "VOUCHER_MESSAGE_LEN",
+      "docs": [
+        "Total length of the voucher message bytes that the off-chain agent signs",
+        "and the on-chain program verifies (see `VOUCHER_DOMAIN_TAG`)."
+      ],
+      "type": "u32",
+      "value": "133"
     }
   ]
 }
