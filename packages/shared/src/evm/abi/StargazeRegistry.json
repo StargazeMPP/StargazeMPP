@@ -5,16 +5,6 @@
       "type": "constructor",
       "inputs": [
         {
-          "name": "gazeToken",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
-          "name": "burnControllerAddress",
-          "type": "address",
-          "internalType": "address"
-        },
-        {
           "name": "admin",
           "type": "address",
           "internalType": "address"
@@ -38,19 +28,6 @@
     {
       "type": "function",
       "name": "MAX_REPUTATION",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "MIN_STAKE",
       "inputs": [],
       "outputs": [
         {
@@ -102,32 +79,6 @@
     },
     {
       "type": "function",
-      "name": "VERIFIED_STAKE",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
-      "name": "burnController",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "address",
-          "internalType": "contract IBurnController"
-        }
-      ],
-      "stateMutability": "view"
-    },
-    {
-      "type": "function",
       "name": "castReputationVote",
       "inputs": [
         {
@@ -143,19 +94,6 @@
       ],
       "outputs": [],
       "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
-      "name": "gaze",
-      "inputs": [],
-      "outputs": [
-        {
-          "name": "",
-          "type": "address",
-          "internalType": "contract IERC20"
-        }
-      ],
-      "stateMutability": "view"
     },
     {
       "type": "function",
@@ -220,24 +158,6 @@
     },
     {
       "type": "function",
-      "name": "increaseStake",
-      "inputs": [
-        {
-          "name": "providerId",
-          "type": "bytes32",
-          "internalType": "bytes32"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "internalType": "uint256"
-        }
-      ],
-      "outputs": [],
-      "stateMutability": "nonpayable"
-    },
-    {
-      "type": "function",
       "name": "isVerified",
       "inputs": [
         {
@@ -270,11 +190,6 @@
           "name": "owner",
           "type": "address",
           "internalType": "address"
-        },
-        {
-          "name": "stake",
-          "type": "uint256",
-          "internalType": "uint256"
         },
         {
           "name": "reputationScore",
@@ -317,11 +232,6 @@
           "name": "metaCid",
           "type": "bytes32",
           "internalType": "bytes32"
-        },
-        {
-          "name": "stakeAmount",
-          "type": "uint256",
-          "internalType": "uint256"
         }
       ],
       "outputs": [],
@@ -383,26 +293,29 @@
     },
     {
       "type": "function",
-      "name": "slash",
+      "name": "setStakeChecker",
       "inputs": [
         {
-          "name": "providerId",
-          "type": "bytes32",
-          "internalType": "bytes32"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "internalType": "uint256"
-        },
-        {
-          "name": "reason",
-          "type": "string",
-          "internalType": "string"
+          "name": "checker",
+          "type": "address",
+          "internalType": "address"
         }
       ],
       "outputs": [],
       "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "stakeChecker",
+      "inputs": [],
+      "outputs": [
+        {
+          "name": "",
+          "type": "address",
+          "internalType": "contract IStakeChecker"
+        }
+      ],
+      "stateMutability": "view"
     },
     {
       "type": "function",
@@ -458,47 +371,10 @@
           "internalType": "address"
         },
         {
-          "name": "stake",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
-        },
-        {
           "name": "categoryHash",
           "type": "bytes32",
           "indexed": false,
           "internalType": "bytes32"
-        }
-      ],
-      "anonymous": false
-    },
-    {
-      "type": "event",
-      "name": "ProviderSlashed",
-      "inputs": [
-        {
-          "name": "providerId",
-          "type": "bytes32",
-          "indexed": true,
-          "internalType": "bytes32"
-        },
-        {
-          "name": "amount",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
-        },
-        {
-          "name": "remaining",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
-        },
-        {
-          "name": "reason",
-          "type": "string",
-          "indexed": false,
-          "internalType": "string"
         }
       ],
       "anonymous": false
@@ -643,25 +519,19 @@
     },
     {
       "type": "event",
-      "name": "StakeIncreased",
+      "name": "StakeCheckerSet",
       "inputs": [
         {
-          "name": "providerId",
-          "type": "bytes32",
+          "name": "previous",
+          "type": "address",
           "indexed": true,
-          "internalType": "bytes32"
+          "internalType": "address"
         },
         {
-          "name": "added",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
-        },
-        {
-          "name": "newTotal",
-          "type": "uint256",
-          "indexed": false,
-          "internalType": "uint256"
+          "name": "current",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
         }
       ],
       "anonymous": false
@@ -704,31 +574,10 @@
     },
     {
       "type": "error",
-      "name": "ReentrancyGuardReentrantCall",
-      "inputs": []
-    },
-    {
-      "type": "error",
-      "name": "SafeERC20FailedOperation",
-      "inputs": [
-        {
-          "name": "token",
-          "type": "address",
-          "internalType": "address"
-        }
-      ]
-    },
-    {
-      "type": "error",
       "name": "ScoreOutOfRange",
-      "inputs": []
-    },
-    {
-      "type": "error",
-      "name": "StakeTooLow",
       "inputs": []
     }
   ],
-  "bytecodeHash": "7302f09dd41608c00eeb4f29e502100e280a93c035f6cfc250ff443ee018b301",
-  "deployedBytecodeHash": "2b67a6754d483736b45933e93dffbc4e6a0be2abb0da3601b3988f25bbd665fc"
+  "bytecodeHash": "345a570f92b8ac8b763a4891b2eb3af75ea22b545457b2e5a816092d8fd2eb41",
+  "deployedBytecodeHash": "cb4a52978ab59683b0e8293b339dc3d0d5a23914814ea9f9b162134f32f3d9e7"
 }

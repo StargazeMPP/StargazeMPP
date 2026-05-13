@@ -16,8 +16,6 @@ const outDir = resolve(root, 'out');
 const sharedAbiDir = resolve(root, '..', 'shared', 'src', 'evm', 'abi');
 
 const CONTRACTS = [
-  'GAZEToken',
-  'BurnController',
   'StargazeEscrow',
   'StargazeRegistry',
   'PrivacyVaultRegistry',

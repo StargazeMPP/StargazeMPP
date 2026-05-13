@@ -2,7 +2,7 @@
   "name": "@stargazempp/contracts-evm",
   "version": "0.0.0",
   "private": true,
-  "description": "Tempo EVM Solidity contracts: GAZEToken, BurnController, StargazeEscrow, StargazeRegistry, PrivacyVaultRegistry.",
+  "description": "Tempo EVM Solidity contracts: StargazeEscrow, StargazeRegistry, PrivacyVaultRegistry, StargazeCcipReceiver.",
   "type": "module",
   "scripts": {
     "build": "forge build",

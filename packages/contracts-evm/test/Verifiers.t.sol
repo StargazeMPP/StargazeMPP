@@ -5,8 +5,6 @@ import {Test} from "forge-std/Test.sol";
 import {AggregateSumVerifier} from "../src/verifiers/AggregateSumVerifier.sol";
 import {AggregateMeanVerifier} from "../src/verifiers/AggregateMeanVerifier.sol";
 import {GeofenceVerifier} from "../src/verifiers/GeofenceVerifier.sol";
-import {GAZEToken} from "../src/GAZEToken.sol";
-import {BurnController} from "../src/BurnController.sol";
 import {StargazeRegistry} from "../src/StargazeRegistry.sol";
 import {PrivacyVaultRegistry} from "../src/PrivacyVaultRegistry.sol";
 
@@ -142,8 +140,6 @@ contract VerifiersTest is Test {
 /// PrivacyVaultRegistry config — the production round-trip a buyer would
 /// follow when verifying a provider's published proof on-chain.
 contract VerifierWiringTest is Test {
-    GAZEToken internal gaze;
-    BurnController internal bc;
     StargazeRegistry internal stargaze;
     PrivacyVaultRegistry internal vaultRegistry;
     AggregateSumVerifier internal aggregateVerifier;
@@ -157,22 +153,12 @@ contract VerifierWiringTest is Test {
     bytes32 internal constant ARWEAVE_CID = keccak256("ar://aggregate-vk");
 
     function setUp() public {
-        gaze = new GAZEToken(1_000_000e18, admin);
-        bc = new BurnController(address(gaze), admin);
-        stargaze = new StargazeRegistry(address(gaze), address(bc), admin);
+        stargaze = new StargazeRegistry(admin);
         vaultRegistry = new PrivacyVaultRegistry(address(stargaze), admin);
         aggregateVerifier = new AggregateSumVerifier();
 
-        vm.startPrank(admin);
-        gaze.setBurnController(address(bc));
-        gaze.transfer(provider, 10_000e18);
-        vm.stopPrank();
-
-        uint256 stake = stargaze.MIN_STAKE();
         vm.prank(provider);
-        gaze.approve(address(stargaze), stake);
-        vm.prank(provider);
-        stargaze.register(PROVIDER_ID, CATEGORY, META_CID, stake);
+        stargaze.register(PROVIDER_ID, CATEGORY, META_CID);
 
         // Cache view return before the prank — a view call would otherwise
         // consume the vm.prank cheat before configure() runs.

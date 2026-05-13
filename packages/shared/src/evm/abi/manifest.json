@@ -1,25 +1,17 @@
 {
-  "generatedAt": "2026-05-13T07:21:52.928Z",
+  "generatedAt": "2026-05-13T09:02:23.724Z",
   "contracts": {
-    "GAZEToken": {
-      "file": "./GAZEToken.json",
-      "bytecodeHash": "0f6270d02716e4e99795400b3dfa2b94f8c766ee8b955eeee67872e4be8eff47"
-    },
-    "BurnController": {
-      "file": "./BurnController.json",
-      "bytecodeHash": "5a8624f6bba772ff6003c693c74baa3273ccc46bc1890d4733fae9c2fa5d3200"
-    },
     "StargazeEscrow": {
       "file": "./StargazeEscrow.json",
-      "bytecodeHash": "25e08ba8632203b092e9d27264497e97f398ddd7afd854d0f2dad3f45aecadc8"
+      "bytecodeHash": "abba41d5ca31d10710a61951a87f19aaed17b9799c52c99bbe35bc434db39ef9"
     },
     "StargazeRegistry": {
       "file": "./StargazeRegistry.json",
-      "bytecodeHash": "7302f09dd41608c00eeb4f29e502100e280a93c035f6cfc250ff443ee018b301"
+      "bytecodeHash": "345a570f92b8ac8b763a4891b2eb3af75ea22b545457b2e5a816092d8fd2eb41"
     },
     "PrivacyVaultRegistry": {
       "file": "./PrivacyVaultRegistry.json",
-      "bytecodeHash": "87b2d891d9b0717c0424d90916f3e333f700c1c225befb0b54b4f77fc14c3cb1"
+      "bytecodeHash": "0bec9de8763988e1138d212e83ea8d63f86f936d77c15052bfd71ec4275ace7e"
     },
     "StargazeCcipReceiver": {
       "file": "./StargazeCcipReceiver.json",

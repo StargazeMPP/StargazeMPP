@@ -9,7 +9,6 @@ interface IStargazeRegistry {
         view
         returns (
             address owner,
-            uint256 stake,
             uint256 reputationScore,
             bool registered,
             bytes32 categoryHash,
@@ -62,7 +61,7 @@ contract PrivacyVaultRegistry is AccessControl {
     }
 
     modifier onlyProviderOwner(bytes32 providerId) {
-        (address owner,,, bool registered,,) = stargazeRegistry.providers(providerId);
+        (address owner,, bool registered,,) = stargazeRegistry.providers(providerId);
         if (!registered) revert NotRegistered();
         if (msg.sender != owner) revert NotProviderOwner();
         _;

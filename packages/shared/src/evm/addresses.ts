@@ -1,10 +1,9 @@
 import type { Address } from 'viem';
 
 export interface DeployedAddresses {
-  GAZEToken: Address;
-  BurnController: Address;
   StargazeEscrow: Address;
   StargazeRegistry: Address;
+  StubStakeChecker: Address;
   PrivacyVaultRegistry: Address;
   StargazeCcipReceiver: Address;
   AggregateSumVerifier?: Address;

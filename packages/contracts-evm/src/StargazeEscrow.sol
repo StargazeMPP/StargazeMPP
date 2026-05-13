@@ -28,7 +28,9 @@ contract StargazeEscrow is AccessControl, ReentrancyGuard, EIP712 {
 
     /// @notice The reward / settlement asset on Tempo (PathUSD ERC-20).
     IERC20 public immutable pathUsd;
-    /// @notice Where the 2 % routing fee is sent for further $GAZE split.
+    /// @notice Treasury address that receives the 2 % routing fee. The
+    ///         off-chain settler drains this address and bridges the
+    ///         accumulated PathUSD to Solana for the deflationary burn.
     address public routingFeeSink;
 
     struct Session {

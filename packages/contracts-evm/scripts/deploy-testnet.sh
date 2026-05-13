@@ -8,7 +8,6 @@
 #   TEMPO_TESTNET_RPC      — RPC endpoint, e.g. https://rpc.testnet.tempo.xyz
 #
 # Optional:
-#   GAZE_INITIAL_SUPPLY    — defaults to 1e9 * 1e18 (see Deploy.s.sol)
 #   TEMPO_BROADCAST_FLAGS  — extra forge flags (e.g. --verify --etherscan-api-key …)
 #
 # Dry run (no broadcast): set DRY_RUN=1.

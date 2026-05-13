@@ -2,38 +2,25 @@
 pragma solidity 0.8.27;
 
 import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-
-interface IBurnController {
-    function burnForReputationVoteFrom(address voter) external;
-}
+import {IStakeChecker} from "./IStakeChecker.sol";
 
 /// @title StargazeRegistry
-/// @notice Provider registration, $GAZE stake collection / slashing,
-///         reputation score storage, Verified Provider badge issuance.
-contract StargazeRegistry is AccessControl, ReentrancyGuard {
-    using SafeERC20 for IERC20;
-
+/// @notice Provider registration, reputation score storage, Verified Provider
+///         badge issuance. Stake-related logic now lives on Solana; the
+///         Verified Provider gate consults an external `IStakeChecker` to
+///         decide whether a provider's stake (mirrored from Solana via CCIP)
+///         clears the threshold.
+contract StargazeRegistry is AccessControl {
     bytes32 public constant ORACLE_ROLE = keccak256("ORACLE_ROLE");
     bytes32 public constant SLASHER_ROLE = keccak256("SLASHER_ROLE");
 
-    /// @notice Minimum $GAZE stake to register as a provider.
-    uint256 public constant MIN_STAKE = 50e18;
-    /// @notice Stake threshold for Verified Provider tier.
-    uint256 public constant VERIFIED_STAKE = 500e18;
     /// @notice Reputation score threshold for Verified Provider tier.
     uint256 public constant VERIFIED_SCORE = 800;
     /// @notice Max reputation score.
     uint256 public constant MAX_REPUTATION = 1000;
 
-    IERC20 public immutable gaze;
-    IBurnController public immutable burnController;
-
     struct Provider {
         address owner;
-        uint256 stake;
         uint256 reputationScore;
         bool registered;
         bytes32 categoryHash; // keccak256(category string) — keep on-chain compact
@@ -42,43 +29,39 @@ contract StargazeRegistry is AccessControl, ReentrancyGuard {
 
     mapping(bytes32 providerId => Provider provider) public providers;
 
-    event ProviderRegistered(bytes32 indexed providerId, address indexed owner, uint256 stake, bytes32 categoryHash);
+    /// @notice External stake oracle. Returns whether a provider's mirrored
+    ///         Solana stake clears the Verified Provider threshold.
+    IStakeChecker public stakeChecker;
+
+    event ProviderRegistered(bytes32 indexed providerId, address indexed owner, bytes32 categoryHash);
     event ProviderUpdated(bytes32 indexed providerId, bytes32 metaCid);
-    event StakeIncreased(bytes32 indexed providerId, uint256 added, uint256 newTotal);
-    event ProviderSlashed(bytes32 indexed providerId, uint256 amount, uint256 remaining, string reason);
     event ReputationUpdated(bytes32 indexed providerId, uint256 score);
     event ReputationVoted(bytes32 indexed providerId, address indexed voter, bool accurate);
+    event StakeCheckerSet(address indexed previous, address indexed current);
 
     error AlreadyRegistered();
     error NotRegistered();
-    error StakeTooLow();
     error ScoreOutOfRange();
     error NotProviderOwner();
 
-    constructor(address gazeToken, address burnControllerAddress, address admin) {
-        gaze = IERC20(gazeToken);
-        burnController = IBurnController(burnControllerAddress);
+    constructor(address admin) {
         _grantRole(DEFAULT_ADMIN_ROLE, admin);
     }
 
     function register(
         bytes32 providerId,
         bytes32 categoryHash,
-        bytes32 metaCid,
-        uint256 stakeAmount
-    ) external nonReentrant {
+        bytes32 metaCid
+    ) external {
         if (providers[providerId].registered) revert AlreadyRegistered();
-        if (stakeAmount < MIN_STAKE) revert StakeTooLow();
-        gaze.safeTransferFrom(msg.sender, address(this), stakeAmount);
         providers[providerId] = Provider({
             owner: msg.sender,
-            stake: stakeAmount,
             reputationScore: 500, // neutral midpoint
             registered: true,
             categoryHash: categoryHash,
             metaCid: metaCid
         });
-        emit ProviderRegistered(providerId, msg.sender, stakeAmount, categoryHash);
+        emit ProviderRegistered(providerId, msg.sender, categoryHash);
     }
 
     function updateMeta(bytes32 providerId, bytes32 metaCid) external {
@@ -87,24 +70,6 @@ contract StargazeRegistry is AccessControl, ReentrancyGuard {
         if (p.owner != msg.sender) revert NotProviderOwner();
         p.metaCid = metaCid;
         emit ProviderUpdated(providerId, metaCid);
-    }
-
-    function increaseStake(bytes32 providerId, uint256 amount) external nonReentrant {
-        Provider storage p = providers[providerId];
-        if (!p.registered) revert NotRegistered();
-        gaze.safeTransferFrom(msg.sender, address(this), amount);
-        p.stake += amount;
-        emit StakeIncreased(providerId, amount, p.stake);
-    }
-
-    /// @notice DAO-executed slash. Reduces stake; burned (sent to 0xdead).
-    function slash(bytes32 providerId, uint256 amount, string calldata reason) external onlyRole(SLASHER_ROLE) {
-        Provider storage p = providers[providerId];
-        if (!p.registered) revert NotRegistered();
-        uint256 actual = amount > p.stake ? p.stake : amount;
-        p.stake -= actual;
-        gaze.safeTransfer(address(0xdead), actual);
-        emit ProviderSlashed(providerId, actual, p.stake, reason);
     }
 
     /// @notice Oracle posts an updated composite reputation score (0–1000).
@@ -116,16 +81,25 @@ contract StargazeRegistry is AccessControl, ReentrancyGuard {
         emit ReputationUpdated(providerId, score);
     }
 
-    /// @notice Agent crowd-vote. Burns 1 $GAZE via BurnController; the score
-    ///         math itself is computed off-chain by the Reputation Oracle.
+    /// @notice Agent crowd-vote. The score math itself is computed off-chain
+    ///         by the Reputation Oracle. Vote burn now happens on Solana via
+    ///         CCIP fan-out when M4 lands; this function only records intent.
     function castReputationVote(bytes32 providerId, bool accurate) external {
         if (!providers[providerId].registered) revert NotRegistered();
-        burnController.burnForReputationVoteFrom(msg.sender);
         emit ReputationVoted(providerId, msg.sender, accurate);
+    }
+
+    /// @notice Admin-only: swap in a new `IStakeChecker` implementation.
+    function setStakeChecker(address checker) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        emit StakeCheckerSet(address(stakeChecker), checker);
+        stakeChecker = IStakeChecker(checker);
     }
 
     function isVerified(bytes32 providerId) external view returns (bool) {
         Provider memory p = providers[providerId];
-        return p.registered && p.stake >= VERIFIED_STAKE && p.reputationScore >= VERIFIED_SCORE;
+        return p.registered
+            && p.reputationScore >= VERIFIED_SCORE
+            && address(stakeChecker) != address(0)
+            && stakeChecker.isVerifiedStake(providerId);
     }
 }

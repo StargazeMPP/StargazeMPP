@@ -3,14 +3,10 @@ pragma solidity 0.8.27;
 
 import {Test} from "forge-std/Test.sol";
 import {IAccessControl} from "@openzeppelin/contracts/access/IAccessControl.sol";
-import {GAZEToken} from "../src/GAZEToken.sol";
-import {BurnController} from "../src/BurnController.sol";
 import {StargazeRegistry} from "../src/StargazeRegistry.sol";
 import {PrivacyVaultRegistry} from "../src/PrivacyVaultRegistry.sol";
 
 contract PrivacyVaultRegistryTest is Test {
-    GAZEToken internal gaze;
-    BurnController internal bc;
     StargazeRegistry internal stargaze;
     PrivacyVaultRegistry internal registry;
 
@@ -28,8 +24,6 @@ contract PrivacyVaultRegistryTest is Test {
     bytes32 internal constant ARWEAVE_CID = keccak256("ar://vk-and-circuit");
     bytes32 internal constant ROTATION_CID = keccak256("ar://rotation-policy");
 
-    uint256 internal constant INITIAL_SUPPLY = 1_000_000e18;
-
     event VaultConfigured(
         bytes32 indexed providerId,
         bytes32 indexed tier,
@@ -41,23 +35,13 @@ contract PrivacyVaultRegistryTest is Test {
     event VaultDeactivated(bytes32 indexed providerId);
 
     function setUp() public {
-        gaze = new GAZEToken(INITIAL_SUPPLY, admin);
-        bc = new BurnController(address(gaze), admin);
-        stargaze = new StargazeRegistry(address(gaze), address(bc), admin);
+        stargaze = new StargazeRegistry(admin);
         registry = new PrivacyVaultRegistry(address(stargaze), admin);
-
-        vm.startPrank(admin);
-        gaze.setBurnController(address(bc));
-        gaze.transfer(provider, 10_000e18);
-        vm.stopPrank();
 
         // Register the provider in StargazeRegistry so PrivacyVaultRegistry
         // can resolve ownership.
-        uint256 stake = stargaze.MIN_STAKE();
         vm.prank(provider);
-        gaze.approve(address(stargaze), stake);
-        vm.prank(provider);
-        stargaze.register(PROVIDER_ID, CATEGORY, META_CID, stake);
+        stargaze.register(PROVIDER_ID, CATEGORY, META_CID);
     }
 
     function _readConfig(bytes32 id)
