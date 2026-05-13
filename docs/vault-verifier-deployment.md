@@ -258,6 +258,13 @@ proof has already been submitted and the second tx reverts with
 `AccountAlreadyInUse`. This is the replay guard; do not work around it
 by deriving a fresh `signals_hash` for the same public inputs.
 
+### CLI shortcut
+
+For operators that just want a one-liner without writing TS glue,
+`packages/provider-sdk/bin/submit-vault-proof.ts` wraps the helper above
+and signs from a solana-CLI keypair. See the provider-sdk README for the
+JSON bundle schema and full flag list.
+
 ## Failure modes
 
 Mapping for the new errors `submit_vault_proof` can surface:

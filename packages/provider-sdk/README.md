@@ -43,3 +43,36 @@ npm test --workspace @stargazempp/provider-sdk
 - [`examples/express.ts`](examples/express.ts)
 - [`examples/hono.ts`](examples/hono.ts)
 - [`examples/fastify.ts`](examples/fastify.ts)
+
+## CLI: `submit-vault-proof`
+
+[`bin/submit-vault-proof.ts`](bin/submit-vault-proof.ts) is a one-shot
+wrapper around `buildSubmitVaultProofInstruction`. Useful for operators
+bringing up a verifier on devnet without writing TS glue:
+
+```bash
+bun packages/provider-sdk/bin/submit-vault-proof.ts \
+    --keypair ~/.config/solana/id.json \
+    --rpc https://api.devnet.solana.com \
+    --verifier CTC7ehb1sYj7A5EsAd3E6viYdo5bxydzSpccDENbkUmP \
+    --provider-id $(cat provider_id.hex) \
+    --proof ./aggregate-sum.bundle.json \
+    --compute-units 600000
+```
+
+The `--proof` argument points at a JSON bundle with the Solana-encoded
+proof and public signals:
+
+```json
+{
+  "proofHex": "<512 hex chars = 256 proof bytes>",
+  "publicSignalsHex": ["<64 hex chars>", "<64 hex chars>", "..."]
+}
+```
+
+Bytes must already be Solana-encoded — BN254 big-endian, c1-first G2,
+`pi_a.y` negated. Use `packages/vault-circuits/scripts/emit-rust-vkey.mjs
+--kind fixture --inputs '…'` as the reference encoding pipeline and
+emit your own JSON in the same byte representation.
+
+Add `--dry-run` to simulate the tx + dump program logs without sending.
