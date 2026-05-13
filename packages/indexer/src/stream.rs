@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
 use futures::{SinkExt, StreamExt};
@@ -12,13 +13,28 @@ use yellowstone_grpc_proto::geyser::{
 
 use crate::config::Config;
 use crate::events::{decode_logs, DecodedEvent};
+use crate::sink::{EventSink, PostgresSink, VecSink};
 
 /// Connects to a Yellowstone gRPC endpoint and subscribes to every
 /// transaction that touches the configured `StargazeAnchor` program.
 /// Decodes each transaction's Anchor events from its log messages and
-/// hands them off to [`handle_event`]; downstream projection into Postgres
-/// lands once the shared Drizzle schema is published.
+/// hands them to the [`EventSink`] chosen from [`Config::database_url`]:
+/// Postgres when set, an in-memory buffer (events dropped on shutdown)
+/// otherwise.
 pub async fn run(cfg: Config) -> Result<()> {
+    let sink: Arc<dyn EventSink> = match cfg.database_url.as_deref() {
+        Some(url) => {
+            let pg = PostgresSink::connect(url)
+                .await
+                .context("postgres sink: connect")?;
+            Arc::new(pg)
+        }
+        None => {
+            warn!("DATABASE_URL not set — using in-memory sink (events will be dropped)");
+            Arc::new(VecSink::new())
+        }
+    };
+
     let Some(yellowstone_url) = cfg.yellowstone_url.clone() else {
         warn!("YELLOWSTONE_GRPC_URL not set — running in dry mode");
         signal::ctrl_c().await?;
@@ -68,7 +84,7 @@ pub async fn run(cfg: Config) -> Result<()> {
                     break;
                 };
                 match message {
-                    Ok(update) => handle_update(update),
+                    Ok(update) => handle_update(update, sink.as_ref()).await,
                     Err(err) => error!(error = %err, "yellowstone stream error"),
                 }
             }
@@ -107,7 +123,7 @@ fn build_subscribe_request(program_id: &str) -> SubscribeRequest {
     }
 }
 
-fn handle_update(update: SubscribeUpdate) {
+async fn handle_update(update: SubscribeUpdate, sink: &dyn EventSink) {
     let Some(payload) = update.update_oneof else { return };
     match payload {
         UpdateOneof::Transaction(tx) => {
@@ -130,7 +146,7 @@ fn handle_update(update: SubscribeUpdate) {
                 "stargaze_anchor tx observed",
             );
             for event in events {
-                handle_event(slot, signature.as_deref(), &event);
+                handle_event(slot, signature.as_deref(), &event, sink).await;
             }
         }
         UpdateOneof::Ping(_) | UpdateOneof::Pong(_) => debug!("yellowstone heartbeat"),
@@ -138,10 +154,15 @@ fn handle_update(update: SubscribeUpdate) {
     }
 }
 
-/// One-line structured trace per decoded Anchor event. Postgres projection
-/// hangs off this hook — the next milestone replaces the log calls with
-/// per-event SQL writers (one INSERT per branch).
-fn handle_event(slot: u64, signature: Option<&str>, event: &DecodedEvent) {
+/// One-line structured trace per decoded Anchor event followed by an
+/// `EventSink::write`. Sink failures are logged but do not abort the
+/// stream — Yellowstone keeps delivering, and replay is idempotent.
+async fn handle_event(
+    slot: u64,
+    signature: Option<&str>,
+    event: &DecodedEvent,
+    sink: &dyn EventSink,
+) {
     match event {
         DecodedEvent::ProviderRegistered(e) => info!(
             slot,
@@ -189,5 +210,15 @@ fn handle_event(slot: u64, signature: Option<&str>, event: &DecodedEvent) {
             payload_bytes = e.payload.len(),
             "anchor event"
         ),
+    }
+
+    if let Err(err) = sink.write(slot, signature, event).await {
+        error!(
+            slot,
+            signature,
+            kind = event.name(),
+            error = %err,
+            "event sink write failed",
+        );
     }
 }
