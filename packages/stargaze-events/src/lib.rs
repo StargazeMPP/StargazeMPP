@@ -163,6 +163,73 @@ pub struct VaultProofVerified {
     pub slot: u64,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct ReputationScoreSet {
+    pub provider_id: [u8; 32],
+    pub score: u16,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct EscrowInitialized {
+    pub admin: PubkeyBytes,
+    pub usdc_mint: PubkeyBytes,
+    pub router: PubkeyBytes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct SessionOpened {
+    pub session_id: [u8; 32],
+    pub agent_wallet: PubkeyBytes,
+    pub deposit: u64,
+    pub spending_limit: u64,
+    pub expires_at: i64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct VoucherSettled {
+    pub session_id: [u8; 32],
+    pub provider_id: [u8; 32],
+    pub cumulative_amount: u64,
+    pub delta: u64,
+    pub to_provider: u64,
+    pub fee: u64,
+    pub nonce: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct SessionSettled {
+    pub session_id: [u8; 32],
+    pub total_to_providers: u64,
+    pub routing_fee: u64,
+    pub refund_to_agent: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct VaultConfigured {
+    pub provider_id: [u8; 32],
+    pub tier: VaultTier,
+    pub on_chain_verifier: PubkeyBytes,
+    pub arweave_cid: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct VaultAuditorKeySet {
+    pub provider_id: [u8; 32],
+    pub previous: PubkeyBytes,
+    pub current: PubkeyBytes,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct VaultBuyerKeyRotationUpdated {
+    pub provider_id: [u8; 32],
+    pub cid: [u8; 32],
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, BorshDeserialize, borsh::BorshSerialize)]
+pub struct VaultDeactivated {
+    pub provider_id: [u8; 32],
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DecodedEvent {
     ProviderRegistered(ProviderRegistered),
@@ -180,6 +247,15 @@ pub enum DecodedEvent {
     ReputationVoteBurned(ReputationVoteBurned),
     StakeDispatched(StakeDispatched),
     VaultProofVerified(VaultProofVerified),
+    ReputationScoreSet(ReputationScoreSet),
+    EscrowInitialized(EscrowInitialized),
+    SessionOpened(SessionOpened),
+    VoucherSettled(VoucherSettled),
+    SessionSettled(SessionSettled),
+    VaultConfigured(VaultConfigured),
+    VaultAuditorKeySet(VaultAuditorKeySet),
+    VaultBuyerKeyRotationUpdated(VaultBuyerKeyRotationUpdated),
+    VaultDeactivated(VaultDeactivated),
 }
 
 impl DecodedEvent {
@@ -200,6 +276,15 @@ impl DecodedEvent {
             DecodedEvent::ReputationVoteBurned(_) => "ReputationVoteBurned",
             DecodedEvent::StakeDispatched(_) => "StakeDispatched",
             DecodedEvent::VaultProofVerified(_) => "VaultProofVerified",
+            DecodedEvent::ReputationScoreSet(_) => "ReputationScoreSet",
+            DecodedEvent::EscrowInitialized(_) => "EscrowInitialized",
+            DecodedEvent::SessionOpened(_) => "SessionOpened",
+            DecodedEvent::VoucherSettled(_) => "VoucherSettled",
+            DecodedEvent::SessionSettled(_) => "SessionSettled",
+            DecodedEvent::VaultConfigured(_) => "VaultConfigured",
+            DecodedEvent::VaultAuditorKeySet(_) => "VaultAuditorKeySet",
+            DecodedEvent::VaultBuyerKeyRotationUpdated(_) => "VaultBuyerKeyRotationUpdated",
+            DecodedEvent::VaultDeactivated(_) => "VaultDeactivated",
         }
     }
 }
@@ -240,6 +325,24 @@ pub static DISC_STAKE_DISPATCHED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("StakeDispatched"));
 pub static DISC_VAULT_PROOF_VERIFIED: LazyLock<[u8; 8]> =
     LazyLock::new(|| anchor_event_discriminator("VaultProofVerified"));
+pub static DISC_REPUTATION_SCORE_SET: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("ReputationScoreSet"));
+pub static DISC_ESCROW_INITIALIZED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("EscrowInitialized"));
+pub static DISC_SESSION_OPENED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("SessionOpened"));
+pub static DISC_VOUCHER_SETTLED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("VoucherSettled"));
+pub static DISC_SESSION_SETTLED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("SessionSettled"));
+pub static DISC_VAULT_CONFIGURED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("VaultConfigured"));
+pub static DISC_VAULT_AUDITOR_KEY_SET: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("VaultAuditorKeySet"));
+pub static DISC_VAULT_BUYER_KEY_ROTATION_UPDATED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("VaultBuyerKeyRotationUpdated"));
+pub static DISC_VAULT_DEACTIVATED: LazyLock<[u8; 8]> =
+    LazyLock::new(|| anchor_event_discriminator("VaultDeactivated"));
 
 /// Parse a single program log line. Returns `None` for non-`Program data:`
 /// lines, malformed base64, unknown discriminators, or borsh failures.
@@ -301,6 +404,33 @@ pub fn decode_event_bytes(bytes: &[u8]) -> Option<DecodedEvent> {
     }
     if disc == DISC_VAULT_PROOF_VERIFIED.as_ref() {
         return VaultProofVerified::deserialize(&mut rest).ok().map(DecodedEvent::VaultProofVerified);
+    }
+    if disc == DISC_REPUTATION_SCORE_SET.as_ref() {
+        return ReputationScoreSet::deserialize(&mut rest).ok().map(DecodedEvent::ReputationScoreSet);
+    }
+    if disc == DISC_ESCROW_INITIALIZED.as_ref() {
+        return EscrowInitialized::deserialize(&mut rest).ok().map(DecodedEvent::EscrowInitialized);
+    }
+    if disc == DISC_SESSION_OPENED.as_ref() {
+        return SessionOpened::deserialize(&mut rest).ok().map(DecodedEvent::SessionOpened);
+    }
+    if disc == DISC_VOUCHER_SETTLED.as_ref() {
+        return VoucherSettled::deserialize(&mut rest).ok().map(DecodedEvent::VoucherSettled);
+    }
+    if disc == DISC_SESSION_SETTLED.as_ref() {
+        return SessionSettled::deserialize(&mut rest).ok().map(DecodedEvent::SessionSettled);
+    }
+    if disc == DISC_VAULT_CONFIGURED.as_ref() {
+        return VaultConfigured::deserialize(&mut rest).ok().map(DecodedEvent::VaultConfigured);
+    }
+    if disc == DISC_VAULT_AUDITOR_KEY_SET.as_ref() {
+        return VaultAuditorKeySet::deserialize(&mut rest).ok().map(DecodedEvent::VaultAuditorKeySet);
+    }
+    if disc == DISC_VAULT_BUYER_KEY_ROTATION_UPDATED.as_ref() {
+        return VaultBuyerKeyRotationUpdated::deserialize(&mut rest).ok().map(DecodedEvent::VaultBuyerKeyRotationUpdated);
+    }
+    if disc == DISC_VAULT_DEACTIVATED.as_ref() {
+        return VaultDeactivated::deserialize(&mut rest).ok().map(DecodedEvent::VaultDeactivated);
     }
     None
 }
@@ -572,6 +702,118 @@ mod tests {
         let log = synth_log(&DISC_VAULT_PROOF_VERIFIED, borsh::to_vec(&event).unwrap());
         let decoded = decode_program_log(&log).expect("decodes");
         assert!(matches!(decoded, DecodedEvent::VaultProofVerified(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_reputation_score_set() {
+        let event = ReputationScoreSet { provider_id: [31u8; 32], score: 825 };
+        let log = synth_log(&DISC_REPUTATION_SCORE_SET, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::ReputationScoreSet(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_escrow_initialized() {
+        let event = EscrowInitialized {
+            admin: PubkeyBytes([32u8; 32]),
+            usdc_mint: PubkeyBytes([33u8; 32]),
+            router: PubkeyBytes([34u8; 32]),
+        };
+        let log = synth_log(&DISC_ESCROW_INITIALIZED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::EscrowInitialized(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_session_opened() {
+        let event = SessionOpened {
+            session_id: [35u8; 32],
+            agent_wallet: PubkeyBytes([36u8; 32]),
+            deposit: 5_000_000,
+            spending_limit: 2_500_000,
+            expires_at: 1_750_000_000,
+        };
+        let log = synth_log(&DISC_SESSION_OPENED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::SessionOpened(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_voucher_settled() {
+        let event = VoucherSettled {
+            session_id: [37u8; 32],
+            provider_id: [38u8; 32],
+            cumulative_amount: 1_000_000,
+            delta: 250_000,
+            to_provider: 245_000,
+            fee: 5_000,
+            nonce: 4,
+        };
+        let log = synth_log(&DISC_VOUCHER_SETTLED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::VoucherSettled(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_session_settled() {
+        let event = SessionSettled {
+            session_id: [39u8; 32],
+            total_to_providers: 1_000_000,
+            routing_fee: 20_000,
+            refund_to_agent: 480_000,
+        };
+        let log = synth_log(&DISC_SESSION_SETTLED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::SessionSettled(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_vault_configured() {
+        let event = VaultConfigured {
+            provider_id: [40u8; 32],
+            tier: VaultTier::Confidential,
+            on_chain_verifier: PubkeyBytes([41u8; 32]),
+            arweave_cid: [42u8; 32],
+        };
+        let log = synth_log(&DISC_VAULT_CONFIGURED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::VaultConfigured(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_vault_auditor_key_set() {
+        let event = VaultAuditorKeySet {
+            provider_id: [43u8; 32],
+            previous: PubkeyBytes([44u8; 32]),
+            current: PubkeyBytes([45u8; 32]),
+        };
+        let log = synth_log(&DISC_VAULT_AUDITOR_KEY_SET, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::VaultAuditorKeySet(ref e) if e == &event));
+    }
+
+    #[test]
+    fn decodes_vault_buyer_key_rotation_updated() {
+        let event = VaultBuyerKeyRotationUpdated {
+            provider_id: [46u8; 32],
+            cid: [47u8; 32],
+        };
+        let log = synth_log(
+            &DISC_VAULT_BUYER_KEY_ROTATION_UPDATED,
+            borsh::to_vec(&event).unwrap(),
+        );
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(
+            matches!(decoded, DecodedEvent::VaultBuyerKeyRotationUpdated(ref e) if e == &event)
+        );
+    }
+
+    #[test]
+    fn decodes_vault_deactivated() {
+        let event = VaultDeactivated { provider_id: [48u8; 32] };
+        let log = synth_log(&DISC_VAULT_DEACTIVATED, borsh::to_vec(&event).unwrap());
+        let decoded = decode_program_log(&log).expect("decodes");
+        assert!(matches!(decoded, DecodedEvent::VaultDeactivated(ref e) if e == &event));
     }
 
     #[test]

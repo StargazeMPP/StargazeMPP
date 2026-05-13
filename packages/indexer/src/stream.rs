@@ -303,6 +303,91 @@ async fn handle_event(
             submitter = %e.submitter,
             "anchor event"
         ),
+        DecodedEvent::ReputationScoreSet(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            score = e.score,
+            "anchor event"
+        ),
+        DecodedEvent::EscrowInitialized(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            admin = %e.admin,
+            usdc_mint = %e.usdc_mint,
+            router = %e.router,
+            "anchor event"
+        ),
+        DecodedEvent::SessionOpened(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            session_id = %hex::encode(e.session_id),
+            agent_wallet = %e.agent_wallet,
+            deposit = e.deposit,
+            spending_limit = e.spending_limit,
+            expires_at = e.expires_at,
+            "anchor event"
+        ),
+        DecodedEvent::VoucherSettled(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            session_id = %hex::encode(e.session_id),
+            provider_id = %hex::encode(e.provider_id),
+            cumulative_amount = e.cumulative_amount,
+            delta = e.delta,
+            to_provider = e.to_provider,
+            fee = e.fee,
+            nonce = e.nonce,
+            "anchor event"
+        ),
+        DecodedEvent::SessionSettled(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            session_id = %hex::encode(e.session_id),
+            total_to_providers = e.total_to_providers,
+            routing_fee = e.routing_fee,
+            refund_to_agent = e.refund_to_agent,
+            "anchor event"
+        ),
+        DecodedEvent::VaultConfigured(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            tier = ?e.tier,
+            on_chain_verifier = %e.on_chain_verifier,
+            arweave_cid = %hex::encode(e.arweave_cid),
+            "anchor event"
+        ),
+        DecodedEvent::VaultAuditorKeySet(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            previous = %e.previous,
+            current = %e.current,
+            "anchor event"
+        ),
+        DecodedEvent::VaultBuyerKeyRotationUpdated(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            cid = %hex::encode(e.cid),
+            "anchor event"
+        ),
+        DecodedEvent::VaultDeactivated(e) => info!(
+            slot,
+            signature,
+            kind = event.name(),
+            provider_id = %hex::encode(e.provider_id),
+            "anchor event"
+        ),
     }
 
     if let Err(err) = sink.write(slot, signature, event).await {

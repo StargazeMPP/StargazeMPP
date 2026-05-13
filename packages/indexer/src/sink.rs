@@ -336,10 +336,162 @@ impl EventSink for PostgresSink {
                 .execute(&self.pool)
                 .await?;
             }
-            // Postgres projection lands with the escrow + vault registry sweep
-            // — for now we keep the variant exhaustive at the stream level
-            // and skip persistence so the indexer keeps building.
-            DecodedEvent::VaultProofVerified(_) => {}
+            DecodedEvent::VaultProofVerified(e) => {
+                sqlx::query(
+                    "INSERT INTO vault_proof_verified \
+                     (slot, signature, provider_id, tier, signals_hash, submitter, on_chain_slot) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .bind(e.tier as i16)
+                .bind(e.signals_hash.as_slice())
+                .bind(e.submitter.0.as_slice())
+                .bind(e.slot as i64)
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::ReputationScoreSet(e) => {
+                sqlx::query(
+                    "INSERT INTO reputation_score_set \
+                     (slot, signature, provider_id, score) \
+                     VALUES ($1, $2, $3, $4) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .bind(e.score as i32)
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::EscrowInitialized(e) => {
+                sqlx::query(
+                    "INSERT INTO escrow_initialized \
+                     (slot, signature, admin, usdc_mint, router) \
+                     VALUES ($1, $2, $3, $4, $5) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.admin.0.as_slice())
+                .bind(e.usdc_mint.0.as_slice())
+                .bind(e.router.0.as_slice())
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::SessionOpened(e) => {
+                sqlx::query(
+                    "INSERT INTO session_opened \
+                     (slot, signature, session_id, agent_wallet, deposit, spending_limit, expires_at) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.session_id.as_slice())
+                .bind(e.agent_wallet.0.as_slice())
+                .bind(e.deposit as i64)
+                .bind(e.spending_limit as i64)
+                .bind(e.expires_at)
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::VoucherSettled(e) => {
+                sqlx::query(
+                    "INSERT INTO voucher_settled \
+                     (slot, signature, session_id, provider_id, cumulative_amount, delta, to_provider, fee, nonce) \
+                     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.session_id.as_slice())
+                .bind(e.provider_id.as_slice())
+                .bind(e.cumulative_amount as i64)
+                .bind(e.delta as i64)
+                .bind(e.to_provider as i64)
+                .bind(e.fee as i64)
+                .bind(e.nonce as i64)
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::SessionSettled(e) => {
+                sqlx::query(
+                    "INSERT INTO session_settled \
+                     (slot, signature, session_id, total_to_providers, routing_fee, refund_to_agent) \
+                     VALUES ($1, $2, $3, $4, $5, $6) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.session_id.as_slice())
+                .bind(e.total_to_providers as i64)
+                .bind(e.routing_fee as i64)
+                .bind(e.refund_to_agent as i64)
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::VaultConfigured(e) => {
+                sqlx::query(
+                    "INSERT INTO vault_configured \
+                     (slot, signature, provider_id, tier, on_chain_verifier, arweave_cid) \
+                     VALUES ($1, $2, $3, $4, $5, $6) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .bind(e.tier as i16)
+                .bind(e.on_chain_verifier.0.as_slice())
+                .bind(e.arweave_cid.as_slice())
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::VaultAuditorKeySet(e) => {
+                sqlx::query(
+                    "INSERT INTO vault_auditor_key_set \
+                     (slot, signature, provider_id, previous, current_key) \
+                     VALUES ($1, $2, $3, $4, $5) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .bind(e.previous.0.as_slice())
+                .bind(e.current.0.as_slice())
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::VaultBuyerKeyRotationUpdated(e) => {
+                sqlx::query(
+                    "INSERT INTO vault_buyer_key_rotation_updated \
+                     (slot, signature, provider_id, cid) \
+                     VALUES ($1, $2, $3, $4) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .bind(e.cid.as_slice())
+                .execute(&self.pool)
+                .await?;
+            }
+            DecodedEvent::VaultDeactivated(e) => {
+                sqlx::query(
+                    "INSERT INTO vault_deactivated \
+                     (slot, signature, provider_id) \
+                     VALUES ($1, $2, $3) \
+                     ON CONFLICT (slot, signature) DO NOTHING",
+                )
+                .bind(slot_i64)
+                .bind(sig)
+                .bind(e.provider_id.as_slice())
+                .execute(&self.pool)
+                .await?;
+            }
         }
         Ok(())
     }

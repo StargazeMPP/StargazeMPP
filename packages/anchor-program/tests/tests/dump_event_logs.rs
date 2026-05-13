@@ -15,11 +15,13 @@ use stargaze_anchor::{
     COOLDOWN_DEFAULT_SECS, MIN_STAKE_DEFAULT, VERIFIED_STAKE_DEFAULT, VOTE_BURN_AMOUNT,
 };
 use stargaze_anchor_tests::{
-    create_associated_token_account, create_mint, ensure_system_account,
-    ix_claim_unstake, ix_dispatch_reputation_to_tempo, ix_dispatch_stake_to_tempo,
-    ix_init_staking, ix_initialize, ix_process_routing_fee_burn, ix_register_provider,
-    ix_reputation_vote_burn, ix_request_unstake, ix_set_stake_mint, ix_slash, ix_stake,
-    mint_to, setup_svm, warp_clock, BURN_DESTINATION,
+    compute_signals_hash, create_associated_token_account, create_mint, ensure_system_account,
+    ix_claim_unstake, ix_configure_vault, ix_deactivate_vault, ix_dispatch_reputation_to_tempo,
+    ix_dispatch_stake_to_tempo, ix_init_escrow, ix_init_staking, ix_initialize,
+    ix_process_routing_fee_burn, ix_register_provider, ix_reputation_vote_burn,
+    ix_request_unstake, ix_set_reputation_score, ix_set_stake_mint, ix_set_vault_auditor_key,
+    ix_set_vault_buyer_key_rotation_cid, ix_slash, ix_stake, ix_submit_vault_proof, mint_to,
+    setup_svm, setup_svm_with_verifiers, warp_clock, BURN_DESTINATION,
 };
 
 fn send(
@@ -240,4 +242,151 @@ fn dumps_staking_and_burn_log_lines() {
     )
     .expect("dispatch_stake_to_tempo");
     dump("dispatch_stake_to_tempo", &m_dispatch_stake.logs);
+}
+
+/// Captures `Program data:` lines for the escrow + vault registry + verifier
+/// events introduced by the Solana-only pivot. Walks: init_escrow ->
+/// set_reputation_score -> configure_vault -> set_vault_auditor_key ->
+/// set_vault_buyer_key_rotation_cid -> deactivate_vault ->
+/// submit_vault_proof. Each step emits exactly one Anchor event.
+#[test]
+fn dumps_vault_and_verifier_log_lines() {
+    const AGGREGATE_SUM_PROOF: [u8; 256] = [
+        15, 94, 189, 196, 250, 135, 63, 120, 66, 154, 206, 209, 207, 9, 103, 101,
+        33, 52, 161, 131, 252, 55, 15, 118, 88, 245, 200, 32, 195, 190, 50, 150,
+        16, 210, 197, 242, 114, 3, 184, 136, 148, 205, 10, 202, 112, 56, 91, 220,
+        243, 32, 153, 101, 37, 72, 181, 220, 94, 71, 181, 69, 234, 25, 2, 75,
+        23, 88, 81, 147, 128, 139, 98, 215, 168, 53, 164, 223, 105, 51, 119, 60,
+        148, 153, 49, 135, 193, 144, 176, 68, 227, 129, 119, 109, 239, 9, 214, 58,
+        8, 206, 79, 71, 212, 66, 102, 55, 176, 95, 142, 53, 231, 210, 227, 86,
+        182, 174, 138, 114, 19, 162, 25, 229, 34, 120, 172, 29, 15, 120, 89, 181,
+        14, 116, 9, 165, 156, 223, 182, 168, 208, 209, 182, 128, 221, 85, 245, 160,
+        112, 135, 42, 253, 51, 109, 72, 225, 106, 92, 82, 119, 8, 229, 167, 169,
+        38, 167, 201, 96, 220, 218, 132, 107, 217, 218, 52, 245, 224, 243, 16, 30,
+        71, 70, 157, 189, 252, 148, 183, 165, 36, 170, 170, 119, 134, 114, 24, 221,
+        19, 61, 50, 61, 93, 233, 79, 200, 101, 181, 148, 113, 38, 135, 216, 230,
+        57, 19, 196, 158, 1, 140, 10, 134, 162, 177, 163, 175, 129, 92, 138, 172,
+        19, 9, 229, 10, 169, 241, 227, 102, 36, 48, 138, 36, 162, 187, 149, 60,
+        125, 69, 184, 248, 174, 238, 9, 107, 74, 193, 1, 57, 79, 198, 156, 136,
+    ];
+    const AGGREGATE_SUM_PUBLIC: [u8; 32] = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        36,
+    ];
+
+    let (mut svm, authority) = setup_svm_with_verifiers();
+    let provider_id = [99u8; 32];
+
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
+    )
+    .expect("initialize");
+
+    let m_escrow = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_init_escrow(
+            &authority.pubkey(),
+            Pubkey::new_unique(),
+            Pubkey::new_unique(),
+        )],
+    )
+    .expect("init_escrow");
+    dump("init_escrow", &m_escrow.logs);
+
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_register_provider(
+            &authority.pubkey(),
+            provider_id,
+            [0u8; 32],
+            [0u8; 32],
+        )],
+    )
+    .expect("register_provider");
+
+    let m_score = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_set_reputation_score(&authority.pubkey(), provider_id, 720)],
+    )
+    .expect("set_reputation_score");
+    dump("set_reputation_score", &m_score.logs);
+
+    let m_cfg = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_configure_vault(
+            &authority.pubkey(),
+            provider_id,
+            stargaze_anchor::VaultTier::ZkAggregate,
+            vault_verifier_aggregate_sum::ID,
+            [0x44u8; 32],
+        )],
+    )
+    .expect("configure_vault");
+    dump("configure_vault", &m_cfg.logs);
+
+    let m_auditor = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_set_vault_auditor_key(
+            &authority.pubkey(),
+            provider_id,
+            Pubkey::new_unique(),
+        )],
+    )
+    .expect("set_vault_auditor_key");
+    dump("set_vault_auditor_key", &m_auditor.logs);
+
+    let m_rot = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_set_vault_buyer_key_rotation_cid(
+            &authority.pubkey(),
+            provider_id,
+            [0x55u8; 32],
+        )],
+    )
+    .expect("set_vault_buyer_key_rotation_cid");
+    dump("set_vault_buyer_key_rotation_cid", &m_rot.logs);
+
+    // Submit the proof before deactivating — VaultProofVerified requires an
+    // active vault. (Deactivation is the last step in this dump.)
+    let signals = vec![AGGREGATE_SUM_PUBLIC];
+    let signals_hash = compute_signals_hash(&signals);
+    let m_proof = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_submit_vault_proof(
+            &authority.pubkey(),
+            vault_verifier_aggregate_sum::ID,
+            provider_id,
+            signals_hash,
+            AGGREGATE_SUM_PROOF,
+            signals,
+        )],
+    )
+    .expect("submit_vault_proof");
+    dump("submit_vault_proof", &m_proof.logs);
+
+    let m_off = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_deactivate_vault(&authority.pubkey(), provider_id)],
+    )
+    .expect("deactivate_vault");
+    dump("deactivate_vault", &m_off.logs);
 }

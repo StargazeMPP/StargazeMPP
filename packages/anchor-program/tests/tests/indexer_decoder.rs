@@ -21,14 +21,16 @@ use stargaze_anchor::{
     COOLDOWN_DEFAULT_SECS, MIN_STAKE_DEFAULT, VERIFIED_STAKE_DEFAULT, VOTE_BURN_AMOUNT,
 };
 use stargaze_anchor_tests::{
-    create_associated_token_account, create_mint, ensure_system_account,
-    ix_cast_reputation_vote, ix_ccip_mirror_score, ix_claim_unstake,
-    ix_dispatch_reputation_to_tempo, ix_dispatch_stake_to_tempo, ix_init_staking, ix_initialize,
-    ix_process_routing_fee_burn, ix_record_x402_receipt, ix_register_provider,
-    ix_reputation_vote_burn, ix_request_unstake, ix_set_stake_mint, ix_slash, ix_stake,
-    mint_to, setup_svm, warp_clock, BURN_DESTINATION,
+    compute_signals_hash, create_associated_token_account, create_mint, ensure_system_account,
+    ix_cast_reputation_vote, ix_ccip_mirror_score, ix_claim_unstake, ix_configure_vault,
+    ix_deactivate_vault, ix_dispatch_reputation_to_tempo, ix_dispatch_stake_to_tempo,
+    ix_init_escrow, ix_init_staking, ix_initialize, ix_process_routing_fee_burn,
+    ix_record_x402_receipt, ix_register_provider, ix_reputation_vote_burn, ix_request_unstake,
+    ix_set_reputation_score, ix_set_stake_mint, ix_set_vault_auditor_key,
+    ix_set_vault_buyer_key_rotation_cid, ix_slash, ix_stake, ix_submit_vault_proof, mint_to,
+    setup_svm, setup_svm_with_verifiers, warp_clock, BURN_DESTINATION,
 };
-use stargaze_events::{decode_logs, DecodedEvent, PubkeyBytes};
+use stargaze_events::{decode_logs, DecodedEvent, PubkeyBytes, VaultTier as EvVaultTier};
 
 fn send(
     svm: &mut litesvm::LiteSVM,
@@ -673,4 +675,385 @@ fn decodes_stake_dispatched_from_litesvm() {
         stake_amount,
     );
     assert!(e.extra_args.is_empty());
+}
+
+#[test]
+fn decodes_reputation_score_set_from_litesvm() {
+    let (mut svm, authority) = setup_svm();
+    let provider_id = [19u8; 32];
+
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
+    )
+    .expect("initialize");
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_register_provider(
+            &authority.pubkey(),
+            provider_id,
+            [0u8; 32],
+            [0u8; 32],
+        )],
+    )
+    .expect("register");
+
+    let meta = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_set_reputation_score(&authority.pubkey(), provider_id, 720)],
+    )
+    .expect("set_reputation_score");
+
+    let DecodedEvent::ReputationScoreSet(e) = decode_single(&meta.logs) else {
+        panic!("expected ReputationScoreSet");
+    };
+    assert_eq!(e.provider_id, provider_id);
+    assert_eq!(e.score, 720);
+}
+
+#[test]
+fn decodes_escrow_initialized_from_litesvm() {
+    let (mut svm, authority) = setup_svm();
+    let usdc_mint = Pubkey::new_unique();
+    let router = Pubkey::new_unique();
+
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
+    )
+    .expect("initialize");
+
+    let meta = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_init_escrow(&authority.pubkey(), usdc_mint, router)],
+    )
+    .expect("init_escrow");
+
+    let DecodedEvent::EscrowInitialized(e) = decode_single(&meta.logs) else {
+        panic!("expected EscrowInitialized");
+    };
+    assert_eq!(e.admin, PubkeyBytes(authority.pubkey().to_bytes()));
+    assert_eq!(e.usdc_mint, PubkeyBytes(usdc_mint.to_bytes()));
+    assert_eq!(e.router, PubkeyBytes(router.to_bytes()));
+}
+
+#[test]
+fn decodes_vault_configured_from_litesvm() {
+    let (mut svm, authority) = setup_svm();
+    let provider_id = [20u8; 32];
+    let verifier = Pubkey::new_unique();
+    let arweave_cid = [0x42u8; 32];
+
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
+    )
+    .expect("initialize");
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_register_provider(
+            &authority.pubkey(),
+            provider_id,
+            [0u8; 32],
+            [0u8; 32],
+        )],
+    )
+    .expect("register");
+
+    let meta = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_configure_vault(
+            &authority.pubkey(),
+            provider_id,
+            stargaze_anchor::VaultTier::ZkAggregate,
+            verifier,
+            arweave_cid,
+        )],
+    )
+    .expect("configure_vault");
+
+    let DecodedEvent::VaultConfigured(e) = decode_single(&meta.logs) else {
+        panic!("expected VaultConfigured");
+    };
+    assert_eq!(e.provider_id, provider_id);
+    assert_eq!(e.tier, EvVaultTier::ZkAggregate);
+    assert_eq!(e.on_chain_verifier, PubkeyBytes(verifier.to_bytes()));
+    assert_eq!(e.arweave_cid, arweave_cid);
+}
+
+#[test]
+fn decodes_vault_auditor_key_set_from_litesvm() {
+    let (mut svm, authority) = setup_svm();
+    let provider_id = [21u8; 32];
+    let verifier = Pubkey::new_unique();
+    let auditor = Pubkey::new_unique();
+
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
+    )
+    .expect("initialize");
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_register_provider(
+            &authority.pubkey(),
+            provider_id,
+            [0u8; 32],
+            [0u8; 32],
+        )],
+    )
+    .expect("register");
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_configure_vault(
+            &authority.pubkey(),
+            provider_id,
+            stargaze_anchor::VaultTier::Confidential,
+            verifier,
+            [0u8; 32],
+        )],
+    )
+    .expect("configure_vault");
+
+    let meta = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_set_vault_auditor_key(&authority.pubkey(), provider_id, auditor)],
+    )
+    .expect("set_vault_auditor_key");
+
+    let DecodedEvent::VaultAuditorKeySet(e) = decode_single(&meta.logs) else {
+        panic!("expected VaultAuditorKeySet");
+    };
+    assert_eq!(e.provider_id, provider_id);
+    // First call from default — previous is `Pubkey::default()`.
+    assert_eq!(e.previous, PubkeyBytes([0u8; 32]));
+    assert_eq!(e.current, PubkeyBytes(auditor.to_bytes()));
+}
+
+#[test]
+fn decodes_vault_buyer_key_rotation_updated_from_litesvm() {
+    let (mut svm, authority) = setup_svm();
+    let provider_id = [22u8; 32];
+    let verifier = Pubkey::new_unique();
+    let cid = [0x77u8; 32];
+
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
+    )
+    .expect("initialize");
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_register_provider(
+            &authority.pubkey(),
+            provider_id,
+            [0u8; 32],
+            [0u8; 32],
+        )],
+    )
+    .expect("register");
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_configure_vault(
+            &authority.pubkey(),
+            provider_id,
+            stargaze_anchor::VaultTier::BuyerKey,
+            verifier,
+            [0u8; 32],
+        )],
+    )
+    .expect("configure_vault");
+
+    let meta = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_set_vault_buyer_key_rotation_cid(
+            &authority.pubkey(),
+            provider_id,
+            cid,
+        )],
+    )
+    .expect("set_vault_buyer_key_rotation_cid");
+
+    let DecodedEvent::VaultBuyerKeyRotationUpdated(e) = decode_single(&meta.logs) else {
+        panic!("expected VaultBuyerKeyRotationUpdated");
+    };
+    assert_eq!(e.provider_id, provider_id);
+    assert_eq!(e.cid, cid);
+}
+
+#[test]
+fn decodes_vault_deactivated_from_litesvm() {
+    let (mut svm, authority) = setup_svm();
+    let provider_id = [23u8; 32];
+    let verifier = Pubkey::new_unique();
+
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
+    )
+    .expect("initialize");
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_register_provider(
+            &authority.pubkey(),
+            provider_id,
+            [0u8; 32],
+            [0u8; 32],
+        )],
+    )
+    .expect("register");
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_configure_vault(
+            &authority.pubkey(),
+            provider_id,
+            stargaze_anchor::VaultTier::ZkAggregate,
+            verifier,
+            [0u8; 32],
+        )],
+    )
+    .expect("configure_vault");
+
+    let meta = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_deactivate_vault(&authority.pubkey(), provider_id)],
+    )
+    .expect("deactivate_vault");
+
+    let DecodedEvent::VaultDeactivated(e) = decode_single(&meta.logs) else {
+        panic!("expected VaultDeactivated");
+    };
+    assert_eq!(e.provider_id, provider_id);
+}
+
+#[test]
+fn decodes_vault_proof_verified_from_litesvm() {
+    // Reuse the aggregate_sum fixture from submit_vault_proof.rs so we don't
+    // duplicate the proof bytes here. Keeping the integration footprint to a
+    // single circuit is enough to prove the cross-crate decoder pipes the
+    // VaultProofVerified shape end-to-end.
+    const AGGREGATE_SUM_PROOF: [u8; 256] = [
+        15, 94, 189, 196, 250, 135, 63, 120, 66, 154, 206, 209, 207, 9, 103, 101,
+        33, 52, 161, 131, 252, 55, 15, 118, 88, 245, 200, 32, 195, 190, 50, 150,
+        16, 210, 197, 242, 114, 3, 184, 136, 148, 205, 10, 202, 112, 56, 91, 220,
+        243, 32, 153, 101, 37, 72, 181, 220, 94, 71, 181, 69, 234, 25, 2, 75,
+        23, 88, 81, 147, 128, 139, 98, 215, 168, 53, 164, 223, 105, 51, 119, 60,
+        148, 153, 49, 135, 193, 144, 176, 68, 227, 129, 119, 109, 239, 9, 214, 58,
+        8, 206, 79, 71, 212, 66, 102, 55, 176, 95, 142, 53, 231, 210, 227, 86,
+        182, 174, 138, 114, 19, 162, 25, 229, 34, 120, 172, 29, 15, 120, 89, 181,
+        14, 116, 9, 165, 156, 223, 182, 168, 208, 209, 182, 128, 221, 85, 245, 160,
+        112, 135, 42, 253, 51, 109, 72, 225, 106, 92, 82, 119, 8, 229, 167, 169,
+        38, 167, 201, 96, 220, 218, 132, 107, 217, 218, 52, 245, 224, 243, 16, 30,
+        71, 70, 157, 189, 252, 148, 183, 165, 36, 170, 170, 119, 134, 114, 24, 221,
+        19, 61, 50, 61, 93, 233, 79, 200, 101, 181, 148, 113, 38, 135, 216, 230,
+        57, 19, 196, 158, 1, 140, 10, 134, 162, 177, 163, 175, 129, 92, 138, 172,
+        19, 9, 229, 10, 169, 241, 227, 102, 36, 48, 138, 36, 162, 187, 149, 60,
+        125, 69, 184, 248, 174, 238, 9, 107, 74, 193, 1, 57, 79, 198, 156, 136,
+    ];
+    const AGGREGATE_SUM_PUBLIC: [u8; 32] = [
+        0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        36,
+    ];
+
+    let (mut svm, authority) = setup_svm_with_verifiers();
+    let provider_id = [24u8; 32];
+
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
+    )
+    .expect("initialize");
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_register_provider(
+            &authority.pubkey(),
+            provider_id,
+            [0u8; 32],
+            [0u8; 32],
+        )],
+    )
+    .expect("register");
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_configure_vault(
+            &authority.pubkey(),
+            provider_id,
+            stargaze_anchor::VaultTier::ZkAggregate,
+            vault_verifier_aggregate_sum::ID,
+            [0u8; 32],
+        )],
+    )
+    .expect("configure_vault");
+
+    let signals = vec![AGGREGATE_SUM_PUBLIC];
+    let signals_hash = compute_signals_hash(&signals);
+
+    let meta = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_submit_vault_proof(
+            &authority.pubkey(),
+            vault_verifier_aggregate_sum::ID,
+            provider_id,
+            signals_hash,
+            AGGREGATE_SUM_PROOF,
+            signals,
+        )],
+    )
+    .expect("submit_vault_proof");
+
+    let DecodedEvent::VaultProofVerified(e) = decode_single(&meta.logs) else {
+        panic!("expected VaultProofVerified");
+    };
+    assert_eq!(e.provider_id, provider_id);
+    assert_eq!(e.tier, EvVaultTier::ZkAggregate);
+    assert_eq!(e.signals_hash, signals_hash);
+    assert_eq!(e.submitter, PubkeyBytes(authority.pubkey().to_bytes()));
 }

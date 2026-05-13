@@ -23,13 +23,16 @@ use sqlx::postgres::PgPoolOptions;
 use sqlx::Row;
 
 use stargaze_events::{
-    CcipDispatched, DecodedEvent, ProviderRegistered, PubkeyBytes, ReputationMirrored,
-    ReputationVoteBurned, ReputationVoted, RoutingFeeProcessed, Slashed, StakeDispatched,
-    StakeMintSet, Staked, StakingInitialized, UnstakeRequested, Unstaked, X402ReceiptRecorded,
+    CcipDispatched, DecodedEvent, EscrowInitialized, ProviderRegistered, PubkeyBytes,
+    ReputationMirrored, ReputationScoreSet, ReputationVoteBurned, ReputationVoted,
+    RoutingFeeProcessed, SessionOpened, SessionSettled, Slashed, StakeDispatched, StakeMintSet,
+    Staked, StakingInitialized, UnstakeRequested, Unstaked, VaultAuditorKeySet,
+    VaultBuyerKeyRotationUpdated, VaultConfigured, VaultDeactivated, VaultProofVerified,
+    VaultTier, VoucherSettled, X402ReceiptRecorded,
 };
 use stargaze_indexer::sink::{EventSink, PostgresSink};
 
-/// All 14 projection tables — the pre-clean step deletes the test slot
+/// All 24 projection tables — the pre-clean step deletes the test slot
 /// range from every one of them before the fixtures are inserted.
 const ALL_TABLES: &[&str] = &[
     "provider_registered",
@@ -46,6 +49,16 @@ const ALL_TABLES: &[&str] = &[
     "routing_fee_processed",
     "reputation_vote_burned",
     "stake_dispatched",
+    "vault_proof_verified",
+    "reputation_score_set",
+    "escrow_initialized",
+    "session_opened",
+    "voucher_settled",
+    "session_settled",
+    "vault_configured",
+    "vault_auditor_key_set",
+    "vault_buyer_key_rotation_updated",
+    "vault_deactivated",
 ];
 
 const SLOT_BASE: i64 = 100_000;
@@ -630,5 +643,392 @@ async fn writes_every_event_variant() {
         .await
         .unwrap();
         assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (stake_dispatched)");
+    }
+
+    // -------- 15. VaultProofVerified --------
+    {
+        let slot = SLOT_BASE + 15;
+        let sig = "test-sig-15";
+        let on_chain_slot: u64 = 9_876_543;
+        let event = DecodedEvent::VaultProofVerified(VaultProofVerified {
+            provider_id: [0xe1u8; 32],
+            tier: VaultTier::ZkAggregate,
+            signals_hash: [0xe2u8; 32],
+            submitter: PubkeyBytes([0xe3u8; 32]),
+            slot: on_chain_slot,
+        });
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT slot, signature, provider_id, tier, signals_hash, submitter, on_chain_slot \
+             FROM vault_proof_verified WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .expect("vault_proof_verified row exists");
+        assert_eq!(row.get::<i64, _>("slot"), slot);
+        assert_eq!(row.get::<String, _>("signature"), sig);
+        assert_eq!(row.get::<Vec<u8>, _>("provider_id"), vec![0xe1u8; 32]);
+        assert_eq!(row.get::<i16, _>("tier"), VaultTier::ZkAggregate as i16);
+        assert_eq!(row.get::<Vec<u8>, _>("signals_hash"), vec![0xe2u8; 32]);
+        assert_eq!(row.get::<Vec<u8>, _>("submitter"), vec![0xe3u8; 32]);
+        assert_eq!(row.get::<i64, _>("on_chain_slot"), on_chain_slot as i64);
+
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM vault_proof_verified WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (vault_proof_verified)");
+    }
+
+    // -------- 16. ReputationScoreSet --------
+    {
+        let slot = SLOT_BASE + 16;
+        let sig = "test-sig-16";
+        let score: u16 = 825;
+        let event = DecodedEvent::ReputationScoreSet(ReputationScoreSet {
+            provider_id: [0xf1u8; 32],
+            score,
+        });
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT slot, signature, provider_id, score \
+             FROM reputation_score_set WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .expect("reputation_score_set row exists");
+        assert_eq!(row.get::<i64, _>("slot"), slot);
+        assert_eq!(row.get::<String, _>("signature"), sig);
+        assert_eq!(row.get::<Vec<u8>, _>("provider_id"), vec![0xf1u8; 32]);
+        assert_eq!(row.get::<i32, _>("score"), score as i32);
+
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM reputation_score_set WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (reputation_score_set)");
+    }
+
+    // -------- 17. EscrowInitialized --------
+    {
+        let slot = SLOT_BASE + 17;
+        let sig = "test-sig-17";
+        let event = DecodedEvent::EscrowInitialized(EscrowInitialized {
+            admin: PubkeyBytes([0xa1u8; 32]),
+            usdc_mint: PubkeyBytes([0xa2u8; 32]),
+            router: PubkeyBytes([0xa3u8; 32]),
+        });
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT slot, signature, admin, usdc_mint, router \
+             FROM escrow_initialized WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .expect("escrow_initialized row exists");
+        assert_eq!(row.get::<i64, _>("slot"), slot);
+        assert_eq!(row.get::<String, _>("signature"), sig);
+        assert_eq!(row.get::<Vec<u8>, _>("admin"), vec![0xa1u8; 32]);
+        assert_eq!(row.get::<Vec<u8>, _>("usdc_mint"), vec![0xa2u8; 32]);
+        assert_eq!(row.get::<Vec<u8>, _>("router"), vec![0xa3u8; 32]);
+
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM escrow_initialized WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (escrow_initialized)");
+    }
+
+    // -------- 18. SessionOpened --------
+    {
+        let slot = SLOT_BASE + 18;
+        let sig = "test-sig-18";
+        let deposit: u64 = 5_000_000;
+        let spending_limit: u64 = 2_500_000;
+        let expires_at: i64 = 1_750_000_000;
+        let event = DecodedEvent::SessionOpened(SessionOpened {
+            session_id: [0xb1u8; 32],
+            agent_wallet: PubkeyBytes([0xb2u8; 32]),
+            deposit,
+            spending_limit,
+            expires_at,
+        });
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT slot, signature, session_id, agent_wallet, deposit, spending_limit, expires_at \
+             FROM session_opened WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .expect("session_opened row exists");
+        assert_eq!(row.get::<i64, _>("slot"), slot);
+        assert_eq!(row.get::<String, _>("signature"), sig);
+        assert_eq!(row.get::<Vec<u8>, _>("session_id"), vec![0xb1u8; 32]);
+        assert_eq!(row.get::<Vec<u8>, _>("agent_wallet"), vec![0xb2u8; 32]);
+        assert_eq!(row.get::<i64, _>("deposit"), deposit as i64);
+        assert_eq!(row.get::<i64, _>("spending_limit"), spending_limit as i64);
+        assert_eq!(row.get::<i64, _>("expires_at"), expires_at);
+
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM session_opened WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (session_opened)");
+    }
+
+    // -------- 19. VoucherSettled --------
+    {
+        let slot = SLOT_BASE + 19;
+        let sig = "test-sig-19";
+        let cumulative_amount: u64 = 1_000_000;
+        let delta: u64 = 250_000;
+        let to_provider: u64 = 245_000;
+        let fee: u64 = 5_000;
+        let nonce: u64 = 4;
+        let event = DecodedEvent::VoucherSettled(VoucherSettled {
+            session_id: [0xc1u8; 32],
+            provider_id: [0xc2u8; 32],
+            cumulative_amount,
+            delta,
+            to_provider,
+            fee,
+            nonce,
+        });
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT slot, signature, session_id, provider_id, cumulative_amount, delta, to_provider, fee, nonce \
+             FROM voucher_settled WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .expect("voucher_settled row exists");
+        assert_eq!(row.get::<i64, _>("slot"), slot);
+        assert_eq!(row.get::<String, _>("signature"), sig);
+        assert_eq!(row.get::<Vec<u8>, _>("session_id"), vec![0xc1u8; 32]);
+        assert_eq!(row.get::<Vec<u8>, _>("provider_id"), vec![0xc2u8; 32]);
+        assert_eq!(row.get::<i64, _>("cumulative_amount"), cumulative_amount as i64);
+        assert_eq!(row.get::<i64, _>("delta"), delta as i64);
+        assert_eq!(row.get::<i64, _>("to_provider"), to_provider as i64);
+        assert_eq!(row.get::<i64, _>("fee"), fee as i64);
+        assert_eq!(row.get::<i64, _>("nonce"), nonce as i64);
+
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM voucher_settled WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (voucher_settled)");
+    }
+
+    // -------- 20. SessionSettled --------
+    {
+        let slot = SLOT_BASE + 20;
+        let sig = "test-sig-20";
+        let total_to_providers: u64 = 1_000_000;
+        let routing_fee: u64 = 20_000;
+        let refund_to_agent: u64 = 480_000;
+        let event = DecodedEvent::SessionSettled(SessionSettled {
+            session_id: [0xd3u8; 32],
+            total_to_providers,
+            routing_fee,
+            refund_to_agent,
+        });
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT slot, signature, session_id, total_to_providers, routing_fee, refund_to_agent \
+             FROM session_settled WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .expect("session_settled row exists");
+        assert_eq!(row.get::<i64, _>("slot"), slot);
+        assert_eq!(row.get::<String, _>("signature"), sig);
+        assert_eq!(row.get::<Vec<u8>, _>("session_id"), vec![0xd3u8; 32]);
+        assert_eq!(row.get::<i64, _>("total_to_providers"), total_to_providers as i64);
+        assert_eq!(row.get::<i64, _>("routing_fee"), routing_fee as i64);
+        assert_eq!(row.get::<i64, _>("refund_to_agent"), refund_to_agent as i64);
+
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM session_settled WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (session_settled)");
+    }
+
+    // -------- 21. VaultConfigured --------
+    {
+        let slot = SLOT_BASE + 21;
+        let sig = "test-sig-21";
+        let event = DecodedEvent::VaultConfigured(VaultConfigured {
+            provider_id: [0xe4u8; 32],
+            tier: VaultTier::Confidential,
+            on_chain_verifier: PubkeyBytes([0xe5u8; 32]),
+            arweave_cid: [0xe6u8; 32],
+        });
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT slot, signature, provider_id, tier, on_chain_verifier, arweave_cid \
+             FROM vault_configured WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .expect("vault_configured row exists");
+        assert_eq!(row.get::<i64, _>("slot"), slot);
+        assert_eq!(row.get::<String, _>("signature"), sig);
+        assert_eq!(row.get::<Vec<u8>, _>("provider_id"), vec![0xe4u8; 32]);
+        assert_eq!(row.get::<i16, _>("tier"), VaultTier::Confidential as i16);
+        assert_eq!(row.get::<Vec<u8>, _>("on_chain_verifier"), vec![0xe5u8; 32]);
+        assert_eq!(row.get::<Vec<u8>, _>("arweave_cid"), vec![0xe6u8; 32]);
+
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM vault_configured WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (vault_configured)");
+    }
+
+    // -------- 22. VaultAuditorKeySet --------
+    {
+        let slot = SLOT_BASE + 22;
+        let sig = "test-sig-22";
+        let event = DecodedEvent::VaultAuditorKeySet(VaultAuditorKeySet {
+            provider_id: [0xf3u8; 32],
+            previous: PubkeyBytes([0xf4u8; 32]),
+            current: PubkeyBytes([0xf5u8; 32]),
+        });
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT slot, signature, provider_id, previous, current_key \
+             FROM vault_auditor_key_set WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .expect("vault_auditor_key_set row exists");
+        assert_eq!(row.get::<i64, _>("slot"), slot);
+        assert_eq!(row.get::<String, _>("signature"), sig);
+        assert_eq!(row.get::<Vec<u8>, _>("provider_id"), vec![0xf3u8; 32]);
+        assert_eq!(row.get::<Vec<u8>, _>("previous"), vec![0xf4u8; 32]);
+        assert_eq!(row.get::<Vec<u8>, _>("current_key"), vec![0xf5u8; 32]);
+
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM vault_auditor_key_set WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (vault_auditor_key_set)");
+    }
+
+    // -------- 23. VaultBuyerKeyRotationUpdated --------
+    {
+        let slot = SLOT_BASE + 23;
+        let sig = "test-sig-23";
+        let event = DecodedEvent::VaultBuyerKeyRotationUpdated(VaultBuyerKeyRotationUpdated {
+            provider_id: [0xa5u8; 32],
+            cid: [0xa6u8; 32],
+        });
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT slot, signature, provider_id, cid \
+             FROM vault_buyer_key_rotation_updated WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .expect("vault_buyer_key_rotation_updated row exists");
+        assert_eq!(row.get::<i64, _>("slot"), slot);
+        assert_eq!(row.get::<String, _>("signature"), sig);
+        assert_eq!(row.get::<Vec<u8>, _>("provider_id"), vec![0xa5u8; 32]);
+        assert_eq!(row.get::<Vec<u8>, _>("cid"), vec![0xa6u8; 32]);
+
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM vault_buyer_key_rotation_updated WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(
+            count, 1,
+            "ON CONFLICT DO NOTHING must hold (vault_buyer_key_rotation_updated)"
+        );
+    }
+
+    // -------- 24. VaultDeactivated --------
+    {
+        let slot = SLOT_BASE + 24;
+        let sig = "test-sig-24";
+        let event = DecodedEvent::VaultDeactivated(VaultDeactivated {
+            provider_id: [0xb7u8; 32],
+        });
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+
+        let row = sqlx::query(
+            "SELECT slot, signature, provider_id FROM vault_deactivated WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .expect("vault_deactivated row exists");
+        assert_eq!(row.get::<i64, _>("slot"), slot);
+        assert_eq!(row.get::<String, _>("signature"), sig);
+        assert_eq!(row.get::<Vec<u8>, _>("provider_id"), vec![0xb7u8; 32]);
+
+        sink.write(slot as u64, Some(sig), &event).await.unwrap();
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM vault_deactivated WHERE slot = $1",
+        )
+        .bind(slot)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 1, "ON CONFLICT DO NOTHING must hold (vault_deactivated)");
     }
 }
