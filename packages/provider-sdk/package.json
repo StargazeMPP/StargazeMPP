@@ -28,8 +28,7 @@
   },
   "dependencies": {
     "@stargazempp/shared": "*",
-    "tweetnacl": "^1.0.3",
-    "viem": "^2.21.0"
+    "tweetnacl": "^1.0.3"
   },
   "devDependencies": {
     "@types/node": "^20",

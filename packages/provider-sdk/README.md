@@ -22,13 +22,15 @@ app.post('/api/intel', provider.monetize(async (req, payment) => {
 ## API surfaces
 
 - **Public** — `StargazeProvider`, `monetize`, `vaultMonetize`, config validation, framework adapters (Express / Hono / Fastify).
-- **Internal** — `StargazeMppVerifier` (EIP-712 voucher recovery via `viem`, deposit verification via Tempo + Solana RPCs). Lives in `src/internal/` and is also exported as a side-door for advanced users.
+- **Internal** — `StargazeMppVerifier` (Ed25519 voucher recovery via `tweetnacl`, Solana deposit verification via RPC). Lives in `src/internal/` and is also exported as a side-door for advanced users.
 
 ## What's in `src/internal/`
 
-- `recoverVoucherSigner(voucher)` — pure EIP-712 ecrecover via viem, sub-10 ms on commodity hardware (the test suite enforces a 10 ms p-mean budget).
-- `StargazeMppVerifier` — composes voucher recovery with Tempo + Solana deposit verification (`TempoDepositVerifier` parses `Transfer` log receipts, `SolanaDepositVerifier` walks SPL Token transfers in a parsed tx).
-- `TempoDepositVerifier`, `SolanaDepositVerifier` — also exported directly for advanced use.
+- `recoverVoucherSigner(voucher)` — Ed25519 verify of the 133-byte StargazeMPP voucher via tweetnacl, sub-10 ms on commodity hardware (the test suite enforces a 10 ms p-mean budget).
+- `StargazeMppVerifier` — composes voucher recovery with `SolanaDepositVerifier`, which walks SPL Token transfers in a parsed tx.
+- `SolanaDepositVerifier` — also exported directly for advanced use.
+- `buildSubmitVaultProofInstruction` — builds a `submit_vault_proof` `TransactionInstruction` for the Solana program (see [`bin/submit-vault-proof.ts`](bin/submit-vault-proof.ts) for the matching CLI).
+- `parseX402ReceiptIx` — pulls structured fields out of an x402-style USDC `Memo` transfer ix.
 
 ## Run the tests
 

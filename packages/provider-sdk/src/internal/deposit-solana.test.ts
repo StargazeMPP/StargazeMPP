@@ -15,7 +15,7 @@ function buildTx(
 ): Pick<ParsedTransactionWithMeta, 'transaction' | 'meta'> {
   return {
     transaction: {
-      // viem-style cast: only the fields the parser reads are required.
+      // Structural cast: only the fields the parser reads are required.
       message: { instructions: outer },
       signatures: [],
     } as unknown as ParsedTransactionWithMeta['transaction'],
