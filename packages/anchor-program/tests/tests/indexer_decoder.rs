@@ -21,13 +21,15 @@ use stargaze_anchor::{
     COOLDOWN_DEFAULT_SECS, MIN_STAKE_DEFAULT, VERIFIED_STAKE_DEFAULT, VOTE_BURN_AMOUNT,
 };
 use stargaze_anchor_tests::{
-    compute_signals_hash, create_associated_token_account, create_mint, ensure_system_account,
-    ix_cast_reputation_vote, ix_claim_unstake, ix_configure_vault, ix_deactivate_vault,
-    ix_init_escrow, ix_init_staking, ix_initialize, ix_process_routing_fee_burn,
+    build_ed25519_ix, build_voucher_message, compute_signals_hash,
+    create_associated_token_account, create_mint, ensure_system_account, ix_cast_reputation_vote,
+    ix_claim_unstake, ix_close_session, ix_configure_vault, ix_deactivate_vault, ix_init_escrow,
+    ix_init_staking, ix_initialize, ix_open_session, ix_process_routing_fee_burn,
     ix_record_x402_receipt, ix_register_provider, ix_reputation_vote_burn, ix_request_unstake,
     ix_set_reputation_score, ix_set_stake_mint, ix_set_vault_auditor_key,
-    ix_set_vault_buyer_key_rotation_cid, ix_slash, ix_stake, ix_submit_vault_proof, mint_to,
-    setup_svm, setup_svm_with_verifiers, warp_clock, BURN_DESTINATION,
+    ix_set_vault_buyer_key_rotation_cid, ix_settle, ix_slash, ix_stake, ix_submit_vault_proof,
+    mint_to, setup_svm, setup_svm_with_verifiers, sign_voucher, voucher_message_hash, warp_clock,
+    BURN_DESTINATION,
 };
 use stargaze_events::{decode_logs, DecodedEvent, PubkeyBytes, VaultTier as EvVaultTier};
 
@@ -908,4 +910,231 @@ fn decodes_vault_proof_verified_from_litesvm() {
     assert_eq!(e.tier, EvVaultTier::ZkAggregate);
     assert_eq!(e.signals_hash, signals_hash);
     assert_eq!(e.submitter, PubkeyBytes(authority.pubkey().to_bytes()));
+}
+
+/// Escrow + voucher-settle fixtures. The mint, agent ATA, provider ATA, and
+/// router live here so each escrow-flavoured decoder test only has to pick a
+/// `session_id` / `provider_id`. Crib of the `Fixtures` struct in `escrow.rs`.
+struct EscrowFixtures {
+    router: Keypair,
+    agent: Keypair,
+    provider_owner: Keypair,
+    mint: Pubkey,
+}
+
+fn bootstrap_escrow(
+    svm: &mut litesvm::LiteSVM,
+    authority: &Keypair,
+    agent_balance: u64,
+) -> EscrowFixtures {
+    send(
+        svm,
+        authority,
+        &[authority],
+        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
+    )
+    .expect("initialize");
+
+    let router = Keypair::new();
+    svm.airdrop(&router.pubkey(), 10_000_000_000).expect("airdrop router");
+
+    let mint_kp = create_mint(svm, authority, &authority.pubkey(), 6);
+    let mint = mint_kp.pubkey();
+
+    send(
+        svm,
+        authority,
+        &[authority],
+        &[ix_init_escrow(&authority.pubkey(), mint, router.pubkey())],
+    )
+    .expect("init_escrow");
+
+    let agent = Keypair::new();
+    svm.airdrop(&agent.pubkey(), 10_000_000_000).expect("airdrop agent");
+    let agent_ata = create_associated_token_account(svm, authority, &agent.pubkey(), &mint);
+    mint_to(svm, authority, &mint, &agent_ata, authority, agent_balance);
+
+    let provider_owner = Keypair::new();
+    svm.airdrop(&provider_owner.pubkey(), 10_000_000_000)
+        .expect("airdrop provider_owner");
+    let _provider_ata =
+        create_associated_token_account(svm, authority, &provider_owner.pubkey(), &mint);
+
+    EscrowFixtures { router, agent, provider_owner, mint }
+}
+
+#[test]
+fn decodes_session_opened_from_litesvm() {
+    let (mut svm, authority) = setup_svm();
+    let deposit: u64 = 10_000_000;
+    let f = bootstrap_escrow(&mut svm, &authority, deposit);
+
+    let session_id = [0x55u8; 32];
+    let expires_at = 1_700_000_000 + 3_600;
+    let meta = send(
+        &mut svm,
+        &f.agent,
+        &[&f.agent],
+        &[ix_open_session(
+            &f.agent.pubkey(),
+            &f.mint,
+            session_id,
+            deposit,
+            deposit,
+            expires_at,
+        )],
+    )
+    .expect("open_session");
+
+    let DecodedEvent::SessionOpened(e) = decode_single(&meta.logs) else {
+        panic!("expected SessionOpened");
+    };
+    assert_eq!(e.session_id, session_id);
+    assert_eq!(e.agent_wallet, PubkeyBytes(f.agent.pubkey().to_bytes()));
+    assert_eq!(e.deposit, deposit);
+    assert_eq!(e.spending_limit, deposit);
+    assert_eq!(e.expires_at, expires_at);
+}
+
+#[test]
+fn decodes_voucher_settled_from_litesvm() {
+    let (mut svm, authority) = setup_svm();
+    let deposit: u64 = 10_000_000;
+    let f = bootstrap_escrow(&mut svm, &authority, deposit);
+
+    let session_id = [0x66u8; 32];
+    let provider_id = [0x67u8; 32];
+    let expires_at = 1_700_000_000 + 3_600;
+    send(
+        &mut svm,
+        &f.agent,
+        &[&f.agent],
+        &[ix_open_session(
+            &f.agent.pubkey(),
+            &f.mint,
+            session_id,
+            deposit,
+            deposit,
+            expires_at,
+        )],
+    )
+    .expect("open_session");
+
+    let cumulative: u64 = 1_500_000;
+    let nonce: u64 = 1;
+    let message = build_voucher_message(
+        &session_id,
+        &f.agent.pubkey(),
+        &provider_id,
+        cumulative,
+        nonce,
+    );
+    let signature = sign_voucher(&f.agent, &message);
+    let hash = voucher_message_hash(&message);
+    let ed_ix = build_ed25519_ix(&f.agent.pubkey(), &signature, &message);
+    let settle_ix = ix_settle(
+        &f.router.pubkey(),
+        session_id,
+        provider_id,
+        &f.provider_owner.pubkey(),
+        &f.mint,
+        cumulative,
+        nonce,
+        hash,
+    );
+    let meta = send(&mut svm, &f.router, &[&f.router], &[ed_ix, settle_ix])
+        .expect("settle");
+
+    let DecodedEvent::VoucherSettled(e) = decode_single(&meta.logs) else {
+        panic!("expected VoucherSettled");
+    };
+    let fee = cumulative * 200 / 10_000; // 2% routing fee
+    let to_provider = cumulative - fee;
+    assert_eq!(e.session_id, session_id);
+    assert_eq!(e.provider_id, provider_id);
+    assert_eq!(e.cumulative_amount, cumulative);
+    assert_eq!(e.delta, cumulative);
+    assert_eq!(e.to_provider, to_provider);
+    assert_eq!(e.fee, fee);
+    assert_eq!(e.nonce, nonce);
+}
+
+#[test]
+fn decodes_session_settled_from_litesvm() {
+    let (mut svm, authority) = setup_svm();
+    let deposit: u64 = 10_000_000;
+    let f = bootstrap_escrow(&mut svm, &authority, deposit);
+
+    let session_id = [0x77u8; 32];
+    let provider_id = [0x78u8; 32];
+    let expires_at = 1_700_000_000 + 3_600;
+    send(
+        &mut svm,
+        &f.agent,
+        &[&f.agent],
+        &[ix_open_session(
+            &f.agent.pubkey(),
+            &f.mint,
+            session_id,
+            deposit,
+            deposit,
+            expires_at,
+        )],
+    )
+    .expect("open_session");
+
+    // Settle a partial voucher so the close-side refund is non-zero and the
+    // identity `deposit == providers + fee + refund` is non-trivial.
+    let cumulative: u64 = deposit / 2;
+    let nonce: u64 = 1;
+    let message = build_voucher_message(
+        &session_id,
+        &f.agent.pubkey(),
+        &provider_id,
+        cumulative,
+        nonce,
+    );
+    let signature = sign_voucher(&f.agent, &message);
+    let hash = voucher_message_hash(&message);
+    let ed_ix = build_ed25519_ix(&f.agent.pubkey(), &signature, &message);
+    let settle_ix = ix_settle(
+        &f.router.pubkey(),
+        session_id,
+        provider_id,
+        &f.provider_owner.pubkey(),
+        &f.mint,
+        cumulative,
+        nonce,
+        hash,
+    );
+    send(&mut svm, &f.router, &[&f.router], &[ed_ix, settle_ix]).expect("settle");
+
+    let meta = send(
+        &mut svm,
+        &f.router,
+        &[&f.router],
+        &[ix_close_session(
+            &f.router.pubkey(),
+            session_id,
+            &f.agent.pubkey(),
+            &f.mint,
+        )],
+    )
+    .expect("close_session");
+
+    let DecodedEvent::SessionSettled(e) = decode_single(&meta.logs) else {
+        panic!("expected SessionSettled");
+    };
+    let fee = cumulative * 200 / 10_000;
+    let to_providers = cumulative - fee;
+    let refund = deposit - to_providers - fee;
+    assert_eq!(e.session_id, session_id);
+    assert_eq!(e.total_to_providers, to_providers);
+    assert_eq!(e.routing_fee, fee);
+    assert_eq!(e.refund_to_agent, refund);
+    // Sanity: the accounting identity that the decoder rows project onto.
+    assert_eq!(
+        deposit,
+        e.total_to_providers + e.routing_fee + e.refund_to_agent,
+    );
 }

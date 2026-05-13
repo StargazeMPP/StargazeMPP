@@ -15,12 +15,14 @@ use stargaze_anchor::{
     COOLDOWN_DEFAULT_SECS, MIN_STAKE_DEFAULT, VERIFIED_STAKE_DEFAULT, VOTE_BURN_AMOUNT,
 };
 use stargaze_anchor_tests::{
-    compute_signals_hash, create_associated_token_account, create_mint, ensure_system_account,
-    ix_claim_unstake, ix_configure_vault, ix_deactivate_vault, ix_init_escrow, ix_init_staking,
-    ix_initialize, ix_process_routing_fee_burn, ix_register_provider, ix_reputation_vote_burn,
-    ix_request_unstake, ix_set_reputation_score, ix_set_stake_mint, ix_set_vault_auditor_key,
-    ix_set_vault_buyer_key_rotation_cid, ix_slash, ix_stake, ix_submit_vault_proof, mint_to,
-    setup_svm, setup_svm_with_verifiers, warp_clock, BURN_DESTINATION,
+    build_ed25519_ix, build_voucher_message, compute_signals_hash,
+    create_associated_token_account, create_mint, ensure_system_account, ix_claim_unstake,
+    ix_close_session, ix_configure_vault, ix_deactivate_vault, ix_init_escrow, ix_init_staking,
+    ix_initialize, ix_open_session, ix_process_routing_fee_burn, ix_register_provider,
+    ix_reputation_vote_burn, ix_request_unstake, ix_set_reputation_score, ix_set_stake_mint,
+    ix_set_vault_auditor_key, ix_set_vault_buyer_key_rotation_cid, ix_settle, ix_slash, ix_stake,
+    ix_submit_vault_proof, mint_to, setup_svm, setup_svm_with_verifiers, sign_voucher,
+    voucher_message_hash, warp_clock, BURN_DESTINATION,
 };
 
 fn send(
@@ -325,4 +327,116 @@ fn dumps_vault_and_verifier_log_lines() {
     )
     .expect("deactivate_vault");
     dump("deactivate_vault", &m_off.logs);
+}
+
+/// Captures `Program data:` lines for the full escrow voucher-settle
+/// lifecycle: init_escrow -> open_session -> settle (ed25519 precompile +
+/// program ix in the same tx) -> close_session. Each step emits exactly one
+/// Anchor `emit!` event; the settle tx also carries the Ed25519 precompile
+/// instruction (which does not emit a log line) before the program ix. This
+/// gives the indexer crate a real-tape fixture for SessionOpened,
+/// VoucherSettled, and SessionSettled in one place.
+#[test]
+fn dumps_escrow_log_lines() {
+    let (mut svm, authority) = setup_svm();
+    let deposit: u64 = 10_000_000;
+
+    send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_initialize(&authority.pubkey(), authority.pubkey())],
+    )
+    .expect("initialize");
+
+    let router = Keypair::new();
+    svm.airdrop(&router.pubkey(), 10_000_000_000).expect("airdrop router");
+
+    let mint_kp = create_mint(&mut svm, &authority, &authority.pubkey(), 6);
+    let mint = mint_kp.pubkey();
+
+    let m_init = send(
+        &mut svm,
+        &authority,
+        &[&authority],
+        &[ix_init_escrow(&authority.pubkey(), mint, router.pubkey())],
+    )
+    .expect("init_escrow");
+    dump("init_escrow", &m_init.logs);
+
+    let agent = Keypair::new();
+    svm.airdrop(&agent.pubkey(), 10_000_000_000).expect("airdrop agent");
+    let agent_ata =
+        create_associated_token_account(&mut svm, &authority, &agent.pubkey(), &mint);
+    mint_to(&mut svm, &authority, &mint, &agent_ata, &authority, deposit);
+
+    let provider_owner = Keypair::new();
+    svm.airdrop(&provider_owner.pubkey(), 10_000_000_000)
+        .expect("airdrop provider_owner");
+    let _provider_ata = create_associated_token_account(
+        &mut svm,
+        &authority,
+        &provider_owner.pubkey(),
+        &mint,
+    );
+
+    let session_id = [0x33u8; 32];
+    let provider_id = [0x34u8; 32];
+    let expires_at = 1_700_000_000 + 3_600;
+
+    let m_open = send(
+        &mut svm,
+        &agent,
+        &[&agent],
+        &[ix_open_session(
+            &agent.pubkey(),
+            &mint,
+            session_id,
+            deposit,
+            deposit,
+            expires_at,
+        )],
+    )
+    .expect("open_session");
+    dump("open_session", &m_open.logs);
+
+    let cumulative: u64 = deposit / 2;
+    let nonce: u64 = 1;
+    let message = build_voucher_message(
+        &session_id,
+        &agent.pubkey(),
+        &provider_id,
+        cumulative,
+        nonce,
+    );
+    let signature = sign_voucher(&agent, &message);
+    let hash = voucher_message_hash(&message);
+    let ed_ix = build_ed25519_ix(&agent.pubkey(), &signature, &message);
+    let settle_ix = ix_settle(
+        &router.pubkey(),
+        session_id,
+        provider_id,
+        &provider_owner.pubkey(),
+        &mint,
+        cumulative,
+        nonce,
+        hash,
+    );
+    let m_settle = send(&mut svm, &router, &[&router], &[ed_ix, settle_ix])
+        .expect("settle");
+    dump("settle", &m_settle.logs);
+
+    let m_close = send(
+        &mut svm,
+        &router,
+        &[&router],
+        &[ix_close_session(
+            &router.pubkey(),
+            session_id,
+            &agent.pubkey(),
+            &mint,
+        )],
+    )
+    .expect("close_session");
+    dump("close_session", &m_close.logs);
 }
