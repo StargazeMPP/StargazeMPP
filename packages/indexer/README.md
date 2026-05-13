@@ -47,13 +47,18 @@ The test uses slots in the range `[100_000, 200_000)` and pre-cleans that
 range from every projection table on entry, so concurrent runs against a
 shared database don't collide with real ingestion data.
 
-## Audit binary
+## Audit binaries
 
-`stargaze-audit-vault-proofs` is a small read-only binary that joins
-`vault_proof_verified` against the latest `provider_registered` row per
-`provider_id`, ordered by `created_at DESC`. Use it for the "show me
-which providers have posted proofs recently" surface (ToB demo, on-call
-spot checks):
+Three small read-only binaries cover the demo / on-call surfaces. All
+read `DATABASE_URL` from env (or `.env`), all accept `--limit N`
+(default 50, capped at 1000), all emit tab-separated rows that pipe
+into `column -t`, `awk`, or `cut`. Cells that depend on a join row the
+indexer never observed render `-`.
+
+`stargaze-audit-vault-proofs` joins `vault_proof_verified` against the
+latest `provider_registered` row per `provider_id`, ordered by
+`created_at DESC`. Use it for the "show me which providers have posted
+proofs recently" surface:
 
 ```bash
 DATABASE_URL=postgres://user:pass@host/db \
@@ -61,6 +66,27 @@ DATABASE_URL=postgres://user:pass@host/db \
   --bin stargaze-audit-vault-proofs -- --limit 20
 ```
 
-Output is tab-separated so it pipes into `column -t`, `awk`, or `cut`.
-`--limit` defaults to 50 and is capped at 1000. Providers that have
-never been seen by the indexer render `-` in the owner/category cells.
+`stargaze-audit-vouchers` walks `voucher_settled` joined with the
+latest `provider_registered` per `provider_id`. Each row carries the
+monotonically-growing `cumulative_amount` settled-to-provider for its
+`(session_id, provider_id)` pair, so the output doubles as a
+per-session running-total tape:
+
+```bash
+DATABASE_URL=postgres://user:pass@host/db \
+  cargo run -p stargaze-indexer \
+  --bin stargaze-audit-vouchers -- --limit 20
+```
+
+`stargaze-audit-sessions` walks `session_settled` joined with the
+originating `session_opened` row per `session_id`. Settlement is
+one-shot per session, so each output row is the final state: original
+deposit, agent wallet, and the three-way split. Eyeball invariant is
+`deposit == total_to_providers + routing_fee + refund_to_agent`
+(modulo any non-routing-fee skim a future ix might introduce):
+
+```bash
+DATABASE_URL=postgres://user:pass@host/db \
+  cargo run -p stargaze-indexer \
+  --bin stargaze-audit-sessions -- --limit 20
+```

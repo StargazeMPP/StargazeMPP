@@ -17,6 +17,14 @@ path = "src/main.rs"
 name = "stargaze-audit-vault-proofs"
 path = "src/bin/audit_vault_proofs.rs"
 
+[[bin]]
+name = "stargaze-audit-vouchers"
+path = "src/bin/audit_vouchers.rs"
+
+[[bin]]
+name = "stargaze-audit-sessions"
+path = "src/bin/audit_sessions.rs"
+
 [dependencies]
 anyhow = "1"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "signal", "time"] }
